@@ -33,6 +33,12 @@ export const config = {
       .filter(Boolean),
   },
 
+  ui: {
+    // Directory containing the built dashboard. Served by the API server
+    // so a single process serves both. Empty disables the UI.
+    distDir: process.env.UI_DIST_DIR ?? "ui/dist",
+  },
+
   kafka: {
     enabled: Boolean(process.env.KAFKA_BROKERS),
     brokers: process.env.KAFKA_BROKERS?.split(",") ?? [],

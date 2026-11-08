@@ -12,6 +12,13 @@ vi.mock("@hono/node-server", () => ({
     return (_c: unknown, next: () => Promise<void>) => next();
   },
 }));
+vi.mock("@hono/node-server/serve-static", () => ({
+  serveStatic: () => (_c: unknown, next: () => Promise<void>) => next(),
+}));
+vi.mock("node:fs", () => ({
+  existsSync: () => true,
+  readFileSync: () => "<html>broadside-test-index</html>",
+}));
 vi.mock("../src/lib/flusher.js", () => ({
   metricsFlusher: {
     ingest: h.ingest,
@@ -187,6 +194,43 @@ describe("createApp", () => {
 
     expect(res.status).toBe(200);
     expect(res.headers.get("access-control-allow-origin")).toBeNull();
+  });
+
+  it("serves the SPA entry point for unknown non-API paths", async () => {
+    const app = createApp();
+
+    const res = await app.request("/runs/123");
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("text/html");
+    expect(await res.text()).toContain("broadside-test-index");
+  });
+
+  it("returns JSON 404 for unknown API paths", async () => {
+    const app = createApp();
+
+    const res = await app.request("/api/nope");
+
+    expect(res.status).toBe(404);
+    expect(await res.json()).toEqual({ error: "not found" });
+  });
+
+  it("returns JSON 404 for missing asset-like paths", async () => {
+    const app = createApp();
+
+    const res = await app.request("/assets/missing.js");
+
+    expect(res.status).toBe(404);
+    expect(await res.json()).toEqual({ error: "not found" });
+  });
+
+  it("returns JSON 404 for non-GET requests to unknown paths", async () => {
+    const app = createApp();
+
+    const res = await app.request("/something", { method: "POST" });
+
+    expect(res.status).toBe(404);
+    expect(await res.json()).toEqual({ error: "not found" });
   });
 
   it("logs unhandled route errors", async () => {

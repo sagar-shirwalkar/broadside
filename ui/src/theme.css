@@ -1,0 +1,151 @@
+/**
+ * Design tokens. Palette adapted from the healthcare-dashboard Figma
+ * reference: warm paper background, white cards, pastel icon chips,
+ * teal/amber/red chart series, charcoal sidebar.
+ */
+
+:root,
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  /* Surfaces */
+  --bg: #faf8f4;
+  --surface: #ffffff;
+  --surface-hover: #f4f1ea;
+  --sidebar-bg: #ffffff;
+  --border: #ece7dc;
+
+  /* Text */
+  --text: #2b2b26;
+  --text-muted: #8a8578;
+  --text-faint: #b3ad9d;
+
+  /* Brand + semantics */
+  --brand: #2f9e8f;
+  --brand-strong: #1f7d71;
+  --brand-soft: #e0f2ee;
+  --success: #2f9e8f;
+  --warning: #e8a33d;
+  --danger: #d65d5d;
+
+  /* KPI icon chips */
+  --chip-peach: #fbe8c8;
+  --chip-blush: #f6d8d5;
+  --chip-mint: #d7efe9;
+
+  /* Charts — read via CSS classes in line-chart.ts so a theme toggle
+     re-colors already-rendered paths without a re-render pass. */
+  --chart-line-1: #2f9e8f;
+  --chart-line-2: #e8a33d;
+  --chart-line-3: #d65d5d;
+  --chart-line-4: #4a90d9;
+  --chart-line-5: #9b7bd4;
+  --chart-grid: #ddd6c8;
+  --chart-axis: #b3ad9d;
+  --chart-tooltip-bg: #ffffff;
+  --chart-tooltip-border: #e3ddcf;
+
+  /* Spacing (8-point grid) */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+
+  /* Type */
+  --font-sans: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "Cascadia Code", Menlo, monospace;
+  --text-xs: 12px;
+  --text-sm: 14px;
+  --text-base: 16px;
+  --text-lg: 20px;
+  --text-xl: 28px;
+
+  /* Shoelace brand */
+  --sl-color-primary-600: #1f7d71;
+  --sl-color-primary-500: #2f9e8f;
+  --sl-color-primary-50: #e0f2ee;
+
+  --radius: 14px;
+  --shadow-card: 0 1px 2px rgba(43, 43, 38, 0.05),
+    0 4px 16px rgba(43, 43, 38, 0.05);
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --bg: #1d1d20;
+  --surface: #26262a;
+  --surface-hover: #2e2e33;
+  --sidebar-bg: #202024;
+  --border: #34343a;
+
+  --text: #f2f0ea;
+  --text-muted: #a8a499;
+  --text-faint: #6f6b62;
+
+  --brand: #4cc2b4;
+  --brand-strong: #7ad8cb;
+  --brand-soft: #1e3632;
+  --success: #4cc2b4;
+  --warning: #f0b35c;
+  --danger: #e08181;
+
+  --chip-peach: #4a3a20;
+  --chip-blush: #4a2b2b;
+  --chip-mint: #1e3a36;
+
+  --chart-line-1: #4cc2b4;
+  --chart-line-2: #f0b35c;
+  --chart-line-3: #e08181;
+  --chart-line-4: #7ab1e5;
+  --chart-line-5: #b79ce6;
+  --chart-grid: #3a3a40;
+  --chart-axis: #6f6b62;
+  --chart-tooltip-bg: #26262a;
+  --chart-tooltip-border: #3a3a40;
+
+  --sl-color-primary-600: #7ad8cb;
+  --sl-color-primary-500: #4cc2b4;
+  --sl-color-primary-50: #1e3632;
+
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.3),
+    0 4px 16px rgba(0, 0, 0, 0.3);
+}
+
+html,
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+}
+
+h1,
+h2,
+h3 {
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+a {
+  color: var(--brand-strong);
+}
+
+.mono {
+  font-family: var(--font-mono);
+}
+
+/* KPI latency color coding (green < 200ms, amber < 500ms, red ≥ 500ms) */
+.lat-ok {
+  color: var(--success);
+}
+.lat-warn {
+  color: var(--warning);
+}
+.lat-bad {
+  color: var(--danger);
+}

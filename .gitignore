@@ -4,6 +4,7 @@ node_modules/
 
 # Project artifacts
 dist/
+ui/dist/
 coverage/
 data/reports/
 *.log

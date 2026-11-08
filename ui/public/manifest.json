@@ -1,0 +1,17 @@
+{
+  "name": "Broadside",
+  "short_name": "Broadside",
+  "description": "A self-hosted dashboard for Artillery load-test metrics.",
+  "start_url": "/",
+  "display": "standalone",
+  "theme_color": "#2f9e8f",
+  "background_color": "#faf8f4",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

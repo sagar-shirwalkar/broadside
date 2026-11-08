@@ -10,6 +10,7 @@ const envKeys = [
   "ARTILLERY_REPORT_DIR",
   "API_TOKEN",
   "CORS_ORIGINS",
+  "UI_DIST_DIR",
   "KAFKA_BROKERS",
   "KAFKA_TOPIC",
   "RING_CAPACITY",
@@ -48,6 +49,9 @@ describe("config", () => {
       cors: {
         origins: ["http://localhost:5173", "http://127.0.0.1:5173"],
       },
+      ui: {
+        distDir: "ui/dist",
+      },
       kafka: {
         enabled: false,
         brokers: [],
@@ -69,6 +73,7 @@ describe("config", () => {
     process.env.ARTILLERY_REPORT_DIR = "/var/lib/broadside/reports";
     process.env.API_TOKEN = "test-token";
     process.env.CORS_ORIGINS = " https://dashboard.example.com , https://app.example.com ";
+    process.env.UI_DIST_DIR = "/srv/broadside/ui";
     process.env.KAFKA_BROKERS = "broker-a:9092,broker-b:9092";
     process.env.KAFKA_TOPIC = "custom.metrics";
     process.env.RING_CAPACITY = "256";
@@ -92,6 +97,9 @@ describe("config", () => {
       },
       cors: {
         origins: ["https://dashboard.example.com", "https://app.example.com"],
+      },
+      ui: {
+        distDir: "/srv/broadside/ui",
       },
       kafka: {
         enabled: true,

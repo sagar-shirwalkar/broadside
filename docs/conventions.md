@@ -57,6 +57,13 @@
 - Add new variables to `.env.example` and document them in the README configuration table.
 - Never commit `.env` or secrets.
 
+## Dashboard (`ui/`)
+
+- The UI is TypeScript with `strict: true` and `moduleResolution: bundler`; relative imports use the `.js` extension for consistency with the server.
+- Keep views focused on one responsibility; shared shapes live in `ui/src/types.ts`, display formatting in `ui/src/format.ts`, and HTTP in `ui/src/api.ts` (no ad-hoc `fetch` in views).
+- Charts use CSS custom properties for colors (`--chart-line-*`), never hardcoded hex, so theming works on toggle.
+- UI dependencies stay minimal (Lit, Shoelace, d3-scale/d3-shape, Vite); no charting library and no Tailwind.
+
 ## Logging
 
 - Use the shared Pino logger from `src/logger.ts`; do not use `console.*` in server code.

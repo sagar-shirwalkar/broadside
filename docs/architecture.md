@@ -2,7 +2,7 @@
 
 ## Overview
 
-Broadside is a Node/TypeScript service that ingests Artillery-style metric points, buffers them, and writes them to TimescaleDB. It can also launch Artillery runs, parse their JSON reports into aggregate and per-endpoint points, and persist the reports. It exposes REST reads, a WebSocket ingest endpoint, Connect/gRPC ingest, and an optional Kafka consumer. The dashboard UI is not implemented yet.
+Broadside is a Node/TypeScript service that ingests Artillery-style metric points, buffers them, and writes them to TimescaleDB. It can also launch Artillery runs, parse their JSON reports into aggregate and per-endpoint points, and persist the reports. It exposes REST reads, a WebSocket ingest endpoint, Connect/gRPC ingest, and an optional Kafka consumer. The same process serves the Lit dashboard from `ui/dist`.
 
 ## Runtime topology
 
@@ -76,6 +76,8 @@ Rules:
 
 `/api/health` is deliberately public: it runs `SELECT 1` against the database and reports `database.status`, returning `503` with `status: "degraded"` when the database is unreachable, so container orchestrators and monitors can distinguish "process up" from "database down". The gRPC port has no token check.
 
+After the API routes, `@hono/node-server`'s `serveStatic` serves the built dashboard from `config.ui.distDir` (`UI_DIST_DIR`, default `ui/dist`). A `notFound` handler serves `index.html` for non-API, non-asset GETs (SPA fallback for the hash-less and hash routes) and JSON 404s otherwise. The UI is a separate package built with Vite; its dev server proxies `/api` and `/ws` to this process.
+
 ## REST routes
 
 Run and metric endpoints (`src/server/routes/runs.ts`):
@@ -121,6 +123,7 @@ Only `1m`, `1h`, and `1d` are valid granularities. The view name is selected wit
 | `src/types.ts` | Shared `MetricPoint`, `RunSummary`, `QueryParams`, `MetricBatch` types. |
 | `src/server/app.ts` | Hono app, `/ws` ingestion, route mounting, CORS and auth wiring. |
 | `src/server/middleware/auth.ts` | Bearer token authentication (constant-time compare, query-param fallback). |
+| `ui/` (own package) | Lit dashboard: hash router, views, SVG charts, theme. Vite build → `ui/dist`. |
 | `src/server/grpc.ts` | Connect service implementation and proto → domain mapping. |
 | `src/server/kafka.ts` | Optional Kafka consumer lifecycle. |
 | `src/server/routes/runs.ts` | Run and metric query endpoints. |
@@ -134,12 +137,13 @@ Only `1m`, `1h`, and `1d` are valid granularities. The view name is selected wit
 | `src/db/schema.sql` | Hypertable, runs table, continuous aggregates, policies. |
 | `proto/metrics/v1/ingest.proto` | gRPC/Connect service and message definitions. |
 | `src/gen/**` | Generated protobuf TypeScript; do not edit by hand. |
-| `ui/` | Placeholder for the dashboard. |
+| `ui/src/**` | Dashboard views/components (see the `ui/` README and `ui/src/`). |
 | `src/lib/fplib/` | Standalone pure-TypeScript functional utilities; not imported by the server. |
 
 ## Known gaps and rough edges
 
-- `ui/` contains only a `.gitkeep`, so `pnpm task build` fails at the `build:ui` step. Use `pnpm build`.
+- The dashboard has no automated tests; `build:ui` type-checks and bundles it, but interaction correctness is manual.
+- `ui/dist` must exist and be built for the dashboard to be served; an unbuilt checkout returns 404s for non-API paths (and JSON 404s for `/api/*`).
 - Orchestrated runs are not streamed live: their metrics appear only after Artillery exits and the final report is processed. `GET /api/runs/:id/live` streams points for WS/gRPC/Kafka-fed runs once the flusher writes them. A crash before report processing loses an orchestrated run's metrics.
 - The `runs` list endpoint is offset-paginated; deep offsets on a large `runs` table will get slower as the table grows.
 - The `artillery` binary is not a project dependency; operators must install it on the host or in the runtime image.

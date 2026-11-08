@@ -91,7 +91,7 @@ pnpm task setup
 
 - CI runs `pnpm task proto:check`, `pnpm task lint`, `pnpm test:coverage`, and its server build step.
 - A separate CI job builds the Docker image on pushes to `main`.
-- `pnpm task build` includes the UI build and currently fails because `ui/` is a placeholder. Use `pnpm build` until the UI exists.
+- `pnpm task build` runs `build:server` and `build:ui` in parallel; `pnpm build` builds the server only.
 
 ## Docker
 
@@ -99,6 +99,14 @@ pnpm task setup
 - `pnpm task docker:up` runs the full Compose stack; `docker:down` stops it.
 - The Dockerfile is multi-stage: install deps and generate/build in the first stage, then copy `node_modules`, `dist`, and `package.json` into the runtime stage.
 - The default Compose stack publishes only port `3000`.
+
+## Dashboard (`ui/`)
+
+- `ui/` is its own package (own `package.json`, lockfile, and `pnpm-workspace.yaml` for the esbuild approval). `cd ui && pnpm install` sets it up; `pnpm task ui:dev` / `ui:build` wrap the Vite scripts.
+- The UI type-checks as part of its build (`tsc --noEmit && vite build`). The root `tsc` does not cover `ui/` — run `cd ui && pnpm typecheck` to check it alone.
+- Routing is hash-based (`#/renders`), so no static-host rewrite rules are needed; the API server's SPA fallback serves `index.html` for unknown non-API GETs.
+- Charts are hand-rolled SVG with `d3-scale`/`d3-shape`; colors come from CSS custom properties (`--chart-line-*`) so the dark/light toggle re-colors rendered paths without re-rendering.
+- API calls go through `apiGet`/`api` in `ui/src/api.ts`, which centralizes the Bearer token and 401 handling. The dashboard has no automated tests.
 
 ## Adding features
 
@@ -112,7 +120,7 @@ pnpm task setup
 
 - The project is ESM with `module: NodeNext`; relative imports in TypeScript must use the `.js` extension (for example `./config.js`).
 - Tests use Vitest and Hono's `testClient`; run `pnpm test` or `pnpm test:coverage`.
-- `pnpm task dev:full` depends on the UI dev server and will not work until `ui/` is implemented.
+- `pnpm task dev:full` runs the server and Vite dev server together; the UI at `:5173` proxies `/api` and `/ws` to `:3000`.
 - `src/lib/fplib/` is not currently imported by the server; treat it as a standalone utility library.
 - `artillery` is not in `package.json`; `POST /api/runs` fails with `500` if the binary is missing from `PATH`.
 - The orchestrator keeps active runs in memory, so restarting Broadside while a run is in flight leaves that row at `running` and loses the report.

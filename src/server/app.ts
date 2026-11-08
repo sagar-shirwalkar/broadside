@@ -1,7 +1,10 @@
 import { Hono } from "hono";
 import { upgradeWebSocket } from "@hono/node-server";
+import { serveStatic } from "@hono/node-server/serve-static";
 import { structuredLogger } from "@hono/structured-logger";
 import { cors } from "hono/cors";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { logger, type AppEnv } from "../logger.js";
 import { config } from "../config.js";
 import { normalizeBatch } from "../lib/normalize.js";
@@ -78,6 +81,26 @@ export function createApp(): Hono<AppEnv> {
   // REST API
   app.route("/api/runs", runs);
   app.route("/api/health", health);
+
+  // Dashboard (built into config.ui.distDir). Missing files fall through to
+  // the notFound handler below, which serves the SPA entry point.
+  const uiIndex = join(config.ui.distDir, "index.html");
+  app.use(serveStatic({ root: config.ui.distDir }));
+
+  app.notFound((c) => {
+    const { path, method } = c.req;
+    const assetLike = path.split("/").at(-1)?.includes(".") ?? false;
+    if (
+      method !== "GET" ||
+      path.startsWith("/api/") ||
+      path === "/ws" ||
+      assetLike ||
+      !existsSync(uiIndex)
+    ) {
+      return c.json({ error: "not found" }, 404);
+    }
+    return c.html(readFileSync(uiIndex, "utf-8"));
+  });
 
   return app;
 }

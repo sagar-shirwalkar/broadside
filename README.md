@@ -6,7 +6,7 @@ Dashboard for Artillery-generated data.
 
 Broadside is a self-hosted backend and dashboard for [Artillery](https://www.artillery.io/) load-test metrics. Artillery can produce detailed results, but the FOSS toolchain does not include a long-term metrics dashboard. Broadside accepts Artillery-shaped metrics over WebSocket, [Connect/gRPC](https://connectrpc.com/docs/node/getting-started/), or [Kafka](https://kafka.apache.org/), buffers them, and stores them in [TimescaleDB](https://docs.timescale.com/) so runs, RPS, latency percentiles, and error rates can be queried across time.
 
-> **Project status:** backend-first. Ingestion, buffering, storage, continuous aggregates, the REST API, and Artillery run orchestration are implemented. The `ui/` directory is a placeholder.
+> **Project status:** backend and dashboard are implemented. The Lit dashboard in `ui/` covers run management, charts, live streaming, and run comparison.
 >
 > _Last reviewed: 2026-11-08._
 
@@ -44,7 +44,7 @@ Broadside supports shared-secret Bearer authentication for the REST API (includi
 4. Pre-aggregates them into `1m`, `1h`, and `1d` rollups.
 5. Exposes the data through a simple REST API.
 
-The dashboard UI is intentionally not implemented yet; the backend is designed so a UI can be added without changing the ingestion contract.
+The dashboard lives in `ui/` (Lit + Shoelace + Vite) and talks to the same REST API described below; it does not change the ingestion contract.
 
 ## Install
 
@@ -115,17 +115,19 @@ No global `task` or `buf` install is required; both come from dev dependencies.
 
 ```bash
 pnpm task dev      # REST + WebSocket on :3000, gRPC on :3001
+pnpm task ui:dev   # dashboard dev server on :5173 (proxies /api to :3000)
 pnpm task lint     # type-check with tsc --noEmit
 pnpm task --list   # see every task
 ```
 
-To build the server:
+To build:
 
 ```bash
-pnpm build
+pnpm task build    # server + dashboard (ui/dist)
+pnpm build         # server only
 ```
 
-`pnpm task build` also tries to build the UI. Until `ui/` contains a real app, use `pnpm build` for the server.
+The API server serves the built dashboard from `ui/dist` itself (set `UI_DIST_DIR` to change the directory), so a single process serves both. In development, run the Vite dev server on `:5173` and the API on `:3000` side by side (`pnpm task dev:full` runs both).
 
 ### Run a load test
 
@@ -444,6 +446,7 @@ All configuration is read in `src/config.ts` from environment variables (loaded 
 | `ARTILLERY_REPORT_DIR` | `data/reports` | Directory where completed Artillery JSON reports are persisted. |
 | `API_TOKEN` | empty (disabled) | Bearer token required on `/api/runs/*`, `/api/runs/:id/live`, and `/ws`. `/api/health` stays public. |
 | `CORS_ORIGINS` | `http://localhost:5173,http://127.0.0.1:5173` | Comma-separated browser origins allowed by CORS. `*` allows any origin. |
+| `UI_DIST_DIR` | `ui/dist` | Directory the API server serves the dashboard from. Empty disables the UI. |
 | `KAFKA_BROKERS` | empty (disabled) | Comma-separated Kafka brokers. Setting this enables the consumer. |
 | `KAFKA_TOPIC` | `artillery.metrics` | Kafka topic to consume. |
 | `RING_CAPACITY` | `16384` | Ring buffer capacity. Rounded up to the next power of two. |
@@ -462,6 +465,8 @@ Set `LOG_PRETTY=true` for human-readable local logs. The production default is J
 | --- | --- |
 | `pnpm task setup` | First-time install, proto generation, DB start, and schema init. |
 | `pnpm task dev` | Run the server in watch mode. |
+| `pnpm task ui:dev` | Run the dashboard dev server (Vite, `:5173`). |
+| `pnpm task ui:build` | Build the dashboard to `ui/dist`. |
 | `pnpm task lint` | Type-check with `tsc --noEmit`. |
 | `pnpm test` | Run the Vitest suite once. |
 | `pnpm test:coverage` | Run tests with the 80% coverage gate. |
@@ -500,7 +505,10 @@ src/
   gen/                  # buf-generated protobuf TypeScript (do not edit)
 test/                   # Vitest unit and integration tests
 proto/metrics/v1/ingest.proto
-ui/                     # placeholder for the dashboard
+ui/                     # Lit dashboard (own package.json, Vite build → ui/dist)
+  index.html            # entry point, meta, manifest
+  public/               # favicon.svg, manifest.json
+  src/                  # app shell, router, views, components, theme
 ```
 
 ### CI
@@ -517,7 +525,7 @@ The GitHub Actions workflow runs:
 
 ### Known limitations
 
-- The dashboard UI is not implemented (`ui/` only contains a placeholder).
+- The dashboard has no automated tests; it is type-checked and built in CI, but interaction correctness is manual.
 - `GET /api/runs/:id/live` streams points once they are written by the flusher. Orchestrated Artillery runs still produce their report at process exit, so their live stream stays quiet until the run finishes. The `artillery` binary must be installed on the host separately.
 - `metrics_1h` / `metrics_1d` aggregate already-aggregated percentiles with `avg(...)`; they are approximations, not recomputed percentiles from raw data.
 - The Docker Compose stack publishes the REST/WS port (`3000`) but not the gRPC port (`3001`).
@@ -525,7 +533,7 @@ The GitHub Actions workflow runs:
 
 ### Planned work
 
-- [ ] Implement the dashboard UI in `ui/`.
+- [ ] Harden the dashboard: automated component tests, windowing for very long metric series.
 - [ ] Stream Artillery metrics live instead of waiting for the final report. (`GET /api/runs/:id/live` already streams points as the flusher writes them; orchestrated reports still arrive at process exit.)
 - [ ] Make retention, compression, and refresh policies configurable.
 - [ ] Publish the gRPC port in the Docker Compose stack.

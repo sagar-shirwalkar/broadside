@@ -3,9 +3,11 @@ RUN corepack enable
 
 WORKDIR /app
 
-# Install deps
+# Install deps (server + UI)
 COPY package.json pnpm-lock.yaml ./
 RUN pnpm install --frozen-lockfile --prod=false
+COPY ui/package.json ui/pnpm-lock.yaml ui/pnpm-workspace.yaml ./ui/
+RUN cd ui && pnpm install --frozen-lockfile
 
 # Copy source
 COPY . .
@@ -13,8 +15,11 @@ COPY . .
 # Generate proto
 RUN pnpm proto
 
-# Build
+# Build server
 RUN pnpm build
+
+# Build UI
+RUN cd ui && pnpm build
 
 # Production
 FROM node:22-alpine
@@ -23,6 +28,7 @@ WORKDIR /app
 
 COPY --from=base /app/node_modules ./node_modules
 COPY --from=base /app/dist ./dist
+COPY --from=base /app/ui/dist ./ui/dist
 COPY --from=base /app/package.json .
 
 EXPOSE 3000
