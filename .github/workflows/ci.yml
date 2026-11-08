@@ -1,3 +1,9 @@
+# Build, test, and verify the production image on every push and PR.
+#
+# The server builds with tsc and the UI with Vite; both type-checks run in
+# CI so a broken type never reaches a merge. The docker job builds the
+# image and curls the health endpoint from the running container, so a
+# broken image cannot ship quietly.
 name: ci
 
 on:
@@ -9,34 +15,48 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
 
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 12.18.0
-
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 24
-          cache: pnpm
 
-      - name: Install
+      - name: Enable pnpm
+        # corepack ships with Node, so this needs no third-party action and
+        # still honours the packageManager field in package.json. It also
+        # avoids the pnpm/action-setup version skew between actions and
+        # lockfile.
+        run: |
+          corepack enable
+          pnpm --version
+
+      - name: Cache pnpm store
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ~/.local/share/pnpm/store
+          key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: pnpm-${{ runner.os }}-
+
+      - name: Install (server)
         run: pnpm install --frozen-lockfile
 
       - name: Check proto freshness
         run: pnpm task proto:check
 
-      - name: Type-check
+      - name: Type-check (server)
         run: pnpm task lint
 
-      - name: Test
+      - name: Test (server)
         run: pnpm test:coverage
 
-      - name: Build
+      - name: Build (server)
         run: pnpm build
 
       - name: Install UI deps
@@ -45,22 +65,25 @@ jobs:
       - name: Build UI
         run: pnpm task build:ui
 
+      - name: Type-check (ui)
+        run: pnpm --dir ui typecheck
+
       - name: Test UI (unit)
         run: pnpm --dir ui test
 
   ui-e2e:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
 
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 12.18.0
-
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 24
-          cache: pnpm
+
+      - name: Enable pnpm
+        run: |
+          corepack enable
+          pnpm --version
 
       - name: Install UI deps
         run: pnpm --dir ui install --frozen-lockfile
@@ -74,9 +97,25 @@ jobs:
   docker:
     runs-on: ubuntu-latest
     needs: check
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
 
-      - name: Build image
-        run: docker build -t artilleryviz:ci .
+      - name: Build the image
+        run: docker build -t broadside:ci .
+
+      - name: Smoke-test the container
+        run: |
+          # We cannot rely on State alone: the docker job exists to prove
+          # the emitted image actually runs and serves traffic.
+          docker run -d --name broadside -p 3000:3000 broadside:ci
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:3000/api/health > /dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:3000/api/health
+          echo "--- and the SPA shell ---"
+          curl -fsS http://127.0.0.1:3000/ | grep -q "broadside-app" \
+            || { echo "::error::index.html did not contain the app mount"; exit 1; }
+          echo "OK: health and UI both serve"
+          docker logs broadside
+          docker rm -f broadside
