@@ -102,22 +102,27 @@ jobs:
     steps:
       - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
 
-      - name: Build the image
-        run: docker build -t broadside:ci .
-
-      - name: Smoke-test the container
+      - name: Build and start the stack
+        # The docker job exists to prove the emitted image actually runs
+        # and serves traffic end-to-end — through the same compose file
+        # developers use locally, including the schema init (schema.sql
+        # rides the entrypoint mount, so a broken CAGG definition would
+        # abort the boot and fail this job).
+        #
+        # Green health is expected rather than a lone-container "degraded":
+        # /api/health reports 503 whenever the DB is unreachable, so a
+        # lone dashboard container would always fail this assertion.
         run: |
-          # We cannot rely on State alone: the docker job exists to prove
-          # the emitted image actually runs and serves traffic.
-          docker run -d --name broadside -p 3000:3000 broadside:ci
-          for i in $(seq 1 30); do
+          docker compose up -d --build
+          for i in $(seq 1 90); do
             if curl -fsS http://127.0.0.1:3000/api/health > /dev/null 2>&1; then break; fi
             sleep 1
           done
-          curl -fsS http://127.0.0.1:3000/api/health
+          curl -fsS http://127.0.0.1:3000/api/health | grep -q '"status":"ok"' \
+            || { echo "::error::health did not reach ok"; docker compose logs dashboard | tail -30; exit 1; }
           echo "--- and the SPA shell ---"
           curl -fsS http://127.0.0.1:3000/ | grep -q "broadside-app" \
             || { echo "::error::index.html did not contain the app mount"; exit 1; }
           echo "OK: health and UI both serve"
-          docker logs broadside
-          docker rm -f broadside
+          docker compose logs dashboard | tail -5
+          docker compose down
