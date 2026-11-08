@@ -44,4 +44,4 @@ jobs:
     permissions:
       actions: read
       contents: read
-    uses: "google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@375a0e8ebdc98e99b02ac4338a724f5750f21213"
+    uses: "google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@b1d267aea5211fa648d9d442fa64b90dbdcbdd36"
