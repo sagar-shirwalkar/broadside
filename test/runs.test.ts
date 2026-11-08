@@ -15,6 +15,7 @@ const h = vi.hoisted(() => {
     spawnArtillery: vi.fn(),
     killRun: vi.fn(),
     isRunActive: vi.fn(),
+    activeRunCount: vi.fn(),
   };
 });
 
@@ -24,6 +25,7 @@ vi.mock("../src/lib/artillery.js", () => ({
   spawnArtillery: h.spawnArtillery,
   killRun: h.killRun,
   isRunActive: h.isRunActive,
+  activeRunCount: h.activeRunCount,
 }));
 
 import { testClient } from "hono/testing";
@@ -43,6 +45,8 @@ describe("runs routes", () => {
     h.killRun.mockReturnValue(true);
     h.isRunActive.mockReset();
     h.isRunActive.mockReturnValue(false);
+    h.activeRunCount.mockReset();
+    h.activeRunCount.mockReturnValue(0);
   });
 
   it("lists the most recent runs with default pagination", async () => {
@@ -589,6 +593,33 @@ describe("runs routes", () => {
 
     expect(res.status).toBe(409);
     expect(await res.json()).toEqual({ error: "run already active" });
+    expect(h.spawnArtillery).not.toHaveBeenCalled();
+  });
+
+  it("returns 429 when run capacity is reached", async () => {
+    h.activeRunCount.mockReturnValue(4); // default ARTILLERY_MAX_CONCURRENT
+
+    const res = await client.index.$post({
+      json: { id: "run-1", script_path: "load.yml" },
+    });
+
+    expect(res.status).toBe(429);
+    expect(await res.json()).toEqual({ error: "run capacity reached" });
+    expect(h.spawnArtillery).not.toHaveBeenCalled();
+    expect(h.sqlMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects an oversized config body", async () => {
+    const res = await client.index.$post({
+      json: {
+        id: "run-1",
+        script_path: "load.yml",
+        config: "x".repeat(200_001),
+      },
+    });
+
+    expect(res.status).toBe(413);
+    expect(await res.json()).toEqual({ error: "config too large" });
     expect(h.spawnArtillery).not.toHaveBeenCalled();
   });
 

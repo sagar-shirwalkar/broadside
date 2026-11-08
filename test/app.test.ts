@@ -102,6 +102,18 @@ describe("createApp", () => {
     expect(h.ingest).not.toHaveBeenCalled();
   });
 
+  it("drops oversized WebSocket messages without parsing them", () => {
+    const ws = { send: vi.fn() };
+    const { onMessage } = websocketHandlers();
+
+    onMessage({ data: "x".repeat(1024 * 1024 + 1) }, ws);
+
+    expect(h.ingest).not.toHaveBeenCalled();
+    expect(ws.send).toHaveBeenCalledWith(
+      JSON.stringify({ error: "message too large" }),
+    );
+  });
+
   it("reports invalid JSON to the client", () => {
     const ws = { send: vi.fn() };
     const { onMessage } = websocketHandlers();

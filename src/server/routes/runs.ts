@@ -3,7 +3,13 @@ import { streamSSE } from "hono/streaming";
 import { parse as parseYaml } from "yaml";
 import { sql } from "../../db/client.js";
 import { logger } from "../../logger.js";
-import { spawnArtillery, killRun, isRunActive } from "../../lib/artillery.js";
+import {
+  spawnArtillery,
+  killRun,
+  isRunActive,
+  activeRunCount,
+} from "../../lib/artillery.js";
+import { config } from "../../config.js";
 import type { PhaseAnnotation } from "../../types.js";
 
 const runs = new Hono();
@@ -424,6 +430,17 @@ runs.post("/", async (c) => {
   // Check if already running
   if (isRunActive(runId)) {
     return c.json({ error: "run already active" }, 409);
+  }
+
+  // Each running test is a whole child process; refuse new runs past the
+  // configured capacity instead of exhausting host memory. Refusing must
+  // precede the runs-row insert so nothing half-registers.
+  if (activeRunCount() >= config.artillery.maxConcurrentRuns) {
+    return c.json({ error: "run capacity reached" }, 429);
+  }
+
+  if (typeof body.config === "string" && body.config.length > 200_000) {
+    return c.json({ error: "config too large" }, 413);
   }
 
   // Insert run row

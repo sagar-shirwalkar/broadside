@@ -5,6 +5,8 @@ import {
   type MetricBatch as ProtoMetricBatch,
 } from "../gen/metrics/v1/ingest_pb.js";
 import { metricsFlusher } from "../lib/flusher.js";
+import { config } from "../config.js";
+import { logger } from "../logger.js";
 import type { MetricPoint } from "../types.js";
 
 // This is a compile-time check: if the import above fails, tsc errors.
@@ -27,18 +29,41 @@ export const routes = (router: ConnectRouter) => {
   router.service(Ingest, {
     streamMetrics: async (requestStream, _ctx: HandlerContext) => {
       let accepted = 0;
+      let dropped = 0;
       for await (const batch of requestStream) {
-        const points = batch.points.map((p) => mapProtoPoint(p, batch.runId));
+        const { points, dropped: batchDropped } = cappedPoints(
+          batch.points,
+          batch.runId,
+        );
+        dropped += batchDropped;
         metricsFlusher.ingest(points);
         accepted += points.length;
       }
-      return { accepted, dropped: 0 };
+      return { accepted, dropped };
     },
 
     pushMetrics: async (req: ProtoMetricBatch, _ctx: HandlerContext) => {
-      const points = req.points.map((p) => mapProtoPoint(p, req.runId));
+      const { points, dropped } = cappedPoints(req.points, req.runId);
       metricsFlusher.ingest(points);
-      return { accepted: points.length, dropped: 0 };
+      return { accepted: points.length, dropped };
     },
   });
 };
+
+/** Bound a batch to the configured maximum; excess points are dropped
+ *  (counted, and logged when any round exceeds it) rather than buffering
+ *  unbounded producer data into the process. */
+function cappedPoints(
+  protoPoints: ProtoMetricPoint[],
+  runId: string,
+): { points: MetricPoint[]; dropped: number } {
+  const capped = protoPoints.slice(0, config.ingest.maxBatchPoints);
+  const dropped = protoPoints.length - capped.length;
+  if (dropped > 0) {
+    logger.warn(
+      { runId, dropped, cap: config.ingest.maxBatchPoints },
+      "[grpc] batch exceeds cap, dropping excess points",
+    );
+  }
+  return { points: capped.map((p) => mapProtoPoint(p, runId)), dropped };
+}

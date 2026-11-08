@@ -102,10 +102,19 @@ export function createApp(): Hono<AppEnv> {
   app.get("/ws", upgradeWebSocket(() => ({
     onMessage(event, ws) {
       try {
-        const raw = JSON.parse(String(event.data));
+        const text = String(event.data);
+        // Bound a single message: the flusher will shed load anyway, but
+        // parsing a multi-megabyte JSON blob just to drop it is wasteful
+        // and blocks the event loop.
+        if (text.length > config.ingest.maxMessageBytes) {
+          ws.send(JSON.stringify({ error: "message too large" }));
+          return;
+        }
+        const raw = JSON.parse(text);
         const points = normalizeBatch(raw);
-        if (points.length > 0) {
-          metricsFlusher.ingest(points);
+        const capped = points.slice(0, config.ingest.maxBatchPoints);
+        if (capped.length > 0) {
+          metricsFlusher.ingest(capped);
         }
       } catch {
         ws.send(JSON.stringify({ error: "invalid message" }));

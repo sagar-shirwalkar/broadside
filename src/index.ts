@@ -6,6 +6,7 @@ import { createApp } from "./server/app.js";
 import { routes as connectRoutes } from "./server/grpc.js";
 import { startKafkaConsumer, stopKafkaConsumer } from "./server/kafka.js";
 import { metricsFlusher } from "./lib/flusher.js";
+import { killAllRuns } from "./lib/artillery.js";
 import { config } from "./config.js";
 import { logger } from "./logger.js";
 
@@ -40,6 +41,12 @@ async function main() {
     logger.info("[server] shutting down");
     metricsFlusher.stop();
     await stopKafkaConsumer();
+    // Orphaned Artillery children outlive their parent — terminate them so
+    // a restart does not leak running load tests (and their memory).
+    const killed = killAllRuns();
+    if (killed > 0) {
+      logger.info({ killed }, "[server] terminated artillery child processes");
+    }
     wss.close();
     server.close();
     grpcServer.close();

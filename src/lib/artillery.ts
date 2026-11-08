@@ -614,3 +614,18 @@ export function killRun(runId: string): boolean {
 export function isRunActive(runId: string): boolean {
   return activeRuns.has(runId);
 }
+
+/** Current number of running Artillery children. */
+export function activeRunCount(): number {
+  return activeRuns.size;
+}
+
+/** SIGTERM every active child. Called during graceful shutdown so a
+ *  restart never leaves orphaned Artillery processes behind. */
+export function killAllRuns(): number {
+  let count = 0;
+  for (const [id] of activeRuns) {
+    if (killRun(id)) count += 1;
+  }
+  return count;
+}

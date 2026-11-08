@@ -8,6 +8,9 @@ const envKeys = [
   "LOG_LEVEL",
   "LOG_PRETTY",
   "ARTILLERY_REPORT_DIR",
+  "ARTILLERY_MAX_CONCURRENT",
+  "INGEST_MAX_MESSAGE_BYTES",
+  "INGEST_MAX_BATCH_POINTS",
   "API_TOKEN",
   "CORS_ORIGINS",
   "UI_DIST_DIR",
@@ -42,6 +45,11 @@ describe("config", () => {
       },
       artillery: {
         reportDir: "data/reports",
+        maxConcurrentRuns: 4,
+      },
+      ingest: {
+        maxMessageBytes: 1048576,
+        maxBatchPoints: 50000,
       },
       auth: {
         token: "",
@@ -71,6 +79,9 @@ describe("config", () => {
     process.env.LOG_LEVEL = "debug";
     process.env.LOG_PRETTY = "true";
     process.env.ARTILLERY_REPORT_DIR = "/var/lib/broadside/reports";
+    process.env.ARTILLERY_MAX_CONCURRENT = "2";
+    process.env.INGEST_MAX_MESSAGE_BYTES = "8192";
+    process.env.INGEST_MAX_BATCH_POINTS = "1000";
     process.env.API_TOKEN = "test-token";
     process.env.CORS_ORIGINS = " https://dashboard.example.com , https://app.example.com ";
     process.env.UI_DIST_DIR = "/srv/broadside/ui";
@@ -91,6 +102,11 @@ describe("config", () => {
       },
       artillery: {
         reportDir: "/var/lib/broadside/reports",
+        maxConcurrentRuns: 2,
+      },
+      ingest: {
+        maxMessageBytes: 8192,
+        maxBatchPoints: 1000,
       },
       auth: {
         token: "test-token",

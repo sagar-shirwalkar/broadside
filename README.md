@@ -445,6 +445,9 @@ All configuration is read in `src/config.ts` from environment variables (loaded 
 | `LOG_LEVEL` | `info` | Pino log level (`trace`, `debug`, `info`, `warn`, `error`, `fatal`, `silent`). |
 | `LOG_PRETTY` | `false` | Set to `true` to format logs with `pino-pretty` for local development. |
 | `ARTILLERY_REPORT_DIR` | `data/reports` | Directory where completed Artillery JSON reports are persisted. |
+| `ARTILLERY_MAX_CONCURRENT` | `4` | Max concurrently running Artillery children; `POST /api/runs` returns `429` past it. |
+| `INGEST_MAX_MESSAGE_BYTES` | `1048576` | WebSocket messages larger than this are dropped. |
+| `INGEST_MAX_BATCH_POINTS` | `50000` | Points per batch accepted from gRPC/Kafka producers. |
 | `API_TOKEN` | empty (disabled) | Bearer token required on `/api/runs/*`, `/api/runs/:id/live`, and `/ws`. `/api/health` stays public. |
 | `CORS_ORIGINS` | `http://localhost:5173,http://127.0.0.1:5173` | Comma-separated browser origins allowed by CORS. `*` allows any origin. |
 | `UI_DIST_DIR` | `ui/dist` | Directory the API server serves the dashboard from. Empty disables the UI. |

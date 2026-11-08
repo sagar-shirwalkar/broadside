@@ -63,6 +63,8 @@ pnpm task setup
 - The server invokes `artillery run <script> --output <temp>/report.json --quiet` plus any `extra_args`. The report is parsed only after the process exits, which sets `status` to `completed`, fills `duration_ms` / `total_requests` / percentiles / `error_rate`, and ingests the points through the flusher. A non-zero exit, spawn failure, or parsing error marks the run `failed`.
 - Completed reports are copied to `ARTILLERY_REPORT_DIR` (default `data/reports`) and recorded in `runs.json_path`. The directory is gitignored.
 - Per-endpoint points require Artillery's `metrics-by-endpoint` plugin. It is enabled by default since Artillery v2.0.1; older or plugin-less reports still produce an aggregate point.
+- `load-tests/` (gitignored) holds local sample scripts: `load-test.yml` (10s smoke), `steady-state.yml`, `ramp.yml`, `multi-session.yml`, `mixed-load.yml` — all gentle (≤8 rps) with multi-phase shapes for chart exercises.
+- `POST /api/runs` refuses with `429` once `ARTILLERY_MAX_CONCURRENT` children are already running, and with `413` for configs over 200 KB. On shutdown the server SIGTERMs any still-running children.
 - Tests mock the Artillery process; they do not require the CLI. Manual runs against a local target are the quickest way to verify parser changes against a new Artillery version.
 
 ## Auth and CORS

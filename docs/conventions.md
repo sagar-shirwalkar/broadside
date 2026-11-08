@@ -34,6 +34,8 @@
 ## Ingestion and error handling
 
 - JSON ingestion goes through `normalizePoint` / `normalizeBatch`, which tolerate snake_case and camelCase aliases.
+- Ingestion is bounded (defense in depth): WebSocket messages are capped by `INGEST_MAX_MESSAGE_BYTES` (1 MB), batches by `INGEST_MAX_BATCH_POINTS` (50000) across WS/gRPC/Kafka, concurrent Artillery children by `ARTILLERY_MAX_CONCURRENT`, and orchestration POST bodies by the 200 KB config cap.
+- `metrics` rows also carry VU counters, absolute error counts, and histogram quantiles for the CDF/histogram/active-VUser charts; keep `src/db/schema.sql` in sync with `src/types.ts` and `parseReportPoints` when adding columns.
 - Every ingestion path must call `metricsFlusher.ingest`; the flusher owns buffering, batching, retry, and drop accounting.
 - Do not block an ingest path on a database write.
 - Kafka is disabled unless `KAFKA_BROKERS` is set; keep the disabled path silent and safe.

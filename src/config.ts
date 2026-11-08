@@ -12,6 +12,24 @@ export const config = {
 
   artillery: {
     reportDir: process.env.ARTILLERY_REPORT_DIR ?? "data/reports",
+    /** Cap on concurrently running Artillery children (each is a process). */
+    maxConcurrentRuns: parseInt(
+      process.env.ARTILLERY_MAX_CONCURRENT ?? "4",
+      10,
+    ),
+  },
+
+  ingest: {
+    /** Max bytes per WebSocket message before it is dropped. */
+    maxMessageBytes: parseInt(
+      process.env.INGEST_MAX_MESSAGE_BYTES ?? "1048576",
+      10,
+    ),
+    /** Max points per batch accepted from gRPC/Kafka producers. */
+    maxBatchPoints: parseInt(
+      process.env.INGEST_MAX_BATCH_POINTS ?? "50000",
+      10,
+    ),
   },
 
   auth: {
