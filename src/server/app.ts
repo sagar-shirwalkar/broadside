@@ -3,6 +3,7 @@ import { upgradeWebSocket } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { structuredLogger } from "@hono/structured-logger";
 import { cors } from "hono/cors";
+import { compress } from "hono/compress";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { logger, type AppEnv } from "../logger.js";
@@ -73,6 +74,10 @@ export function createApp(): Hono<AppEnv> {
     }
     await next();
   });
+
+  // Gzip JSON payloads (the /raw endpoint can be megabytes). SSE is
+  // excluded by hono/compress's own content-type + chunked-encoding rules.
+  app.use(compress());
 
   // CORS before authentication: preflight (OPTIONS) requests never carry
   // credentials, and the CORS middleware answers them itself.

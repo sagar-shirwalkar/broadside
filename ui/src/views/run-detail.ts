@@ -1,5 +1,6 @@
 import { LitElement, css, html } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
+import { ref } from "lit/directives/ref.js";
 import { api, apiGet, ApiError, RUN_STATUS_EVENT } from "../api.js";
 import type {
   ChartPoint,
@@ -12,6 +13,7 @@ import type {
   RunRow,
 } from "../types.js";
 import { cumulative, num } from "../types.js";
+import { decimateForRender } from "../lttb.js";
 import {
   formatDuration,
   formatMs,
@@ -72,6 +74,11 @@ export class RunDetail extends LitElement {
   @state() private loading = true;
   @state() private annotations: PhaseAnnotation[] = [];
   @state() private endpointSeries: ChartSeries[] = [];
+  /** Per-endpoint fan-out (1 + N requests) only starts once its panel
+   *  scrolls near the viewport — keeps first paint to 3–4 queries. */
+  @state() private endpointsLoaded = false;
+  private endpointObserver: IntersectionObserver | null = null;
+  private endpointSentinelBound = false;
 
   @state() private confirmOpen = false;
   @state() private confirmBusy = false;
@@ -80,6 +87,31 @@ export class RunDetail extends LitElement {
     super.connectedCallback();
     void this.loadAll();
   }
+
+  override disconnectedCallback() {
+    super.disconnectedCallback();
+    this.endpointObserver?.disconnect();
+  }
+
+  /** Arms the per-endpoint fetch when its slot approaches the viewport. */
+  private bindEndpointSentinel = (el: Element | undefined) => {
+    if (!el || this.endpointSentinelBound || this.endpointsLoaded) return;
+    this.endpointSentinelBound = true;
+    if (typeof IntersectionObserver === "undefined") {
+      void this.loadEndpointSeries();
+      return;
+    }
+    this.endpointObserver = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) {
+          this.endpointObserver?.disconnect();
+          void this.loadEndpointSeries();
+        }
+      },
+      { rootMargin: "200px" },
+    );
+    this.endpointObserver.observe(el);
+  };
 
   private async loadAll() {
     this.loading = true;
@@ -94,11 +126,11 @@ export class RunDetail extends LitElement {
           composed: true,
         }),
       );
+      // Deliberately NOT loadEndpointSeries — see the sentinel observer.
       await Promise.all([
         this.loadMetrics(),
         this.loadPrevious(),
         this.loadAnnotations(),
-        this.loadEndpointSeries(),
       ]);
     } catch (err) {
       if (err instanceof ApiError && err.status === 404) {
@@ -177,8 +209,10 @@ export class RunDetail extends LitElement {
         }),
       );
       this.endpointSeries = series.filter((s) => s.points.length > 0);
+      this.endpointsLoaded = true;
     } catch {
       this.endpointSeries = [];
+      this.endpointsLoaded = true;
     }
   }
 
@@ -220,10 +254,14 @@ export class RunDetail extends LitElement {
   }
 
   private rawSeries(key: PanelKey, raw: RawRow[]): ChartSeries[] {
+    // Zoomed raw data can be huge; decimate to the render cap (LTTB)
+    // before building SVG paths.
     const pts = (pick: (r: RawRow) => number | null) =>
-      raw
-        .map((r) => ({ time: new Date(r.time).getTime(), value: pick(r) }))
-        .filter((p): p is { time: number; value: number } => p.value !== null);
+      decimateForRender(
+        raw
+          .map((r) => ({ time: new Date(r.time).getTime(), value: pick(r) }))
+          .filter((p): p is { time: number; value: number } => p.value !== null),
+      );
     switch (key) {
       case "rps":
         return [{ name: "req/s", colorIndex: 1, points: pts((r) => r.rps) }];
@@ -377,7 +415,7 @@ export class RunDetail extends LitElement {
     this.zoomByPanel = new Map();
     this.rawByPanel = new Map();
     void this.loadMetrics();
-    void this.loadEndpointSeries();
+    if (this.endpointsLoaded) void this.loadEndpointSeries();
   }
 
   private async doDelete() {
@@ -574,20 +612,24 @@ export class RunDetail extends LitElement {
             xFormat="number"
             .fill=${true}
           ></broadside-chart-panel>
-          ${this.endpointSeries.length > 0
-            ? html`<broadside-chart-panel
-                title="per-endpoint p95"
-                .info=${INFO.perEndpoint}
-                .series=${this.endpointSeries}
-                yFormat="ms"
-                yLabel="ms"
-                kind="line"
-                .annotations=${this.annotations}
-              ></broadside-chart-panel>`
-            : html`<div class="card hint-card">
-                <span class="hint-title">per-endpoint p95</span>
-                <p class="hint">enable the metrics-by-endpoint plugin in your Artillery YAML for per-endpoint charts</p>
-              </div>`}
+          <div class="sentinel" ${ref(this.bindEndpointSentinel)}>
+            ${this.endpointsLoaded
+              ? this.endpointSeries.length > 0
+                ? html`<broadside-chart-panel
+                    title="per-endpoint p95"
+                    .info=${INFO.perEndpoint}
+                    .series=${this.endpointSeries}
+                    yFormat="ms"
+                    yLabel="ms"
+                    kind="line"
+                    .annotations=${this.annotations}
+                  ></broadside-chart-panel>`
+                : html`<div class="card hint-card">
+                    <span class="hint-title">per-endpoint p95</span>
+                    <p class="hint">enable the metrics-by-endpoint plugin in your Artillery YAML for per-endpoint charts</p>
+                  </div>`
+              : html`<broadside-skeleton variant="chart"></broadside-skeleton>`}
+          </div>
           <broadside-chart-panel
             title="error count"
             .info=${INFO.errorCount}

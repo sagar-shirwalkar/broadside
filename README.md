@@ -299,6 +299,7 @@ curl -s "http://localhost:3000/api/runs/run-123/raw?from=2026-01-01T00:00:00Z"
 | `GET` | `/api/runs/compare` | Compare several runs (`ids=a,b,c`). |
 | `GET` | `/api/runs/:id` | Fetch one run, or `404` if it does not exist. |
 | `GET` | `/api/runs/:id/endpoints` | Distinct non-aggregate endpoints with sample counts. |
+| `GET` | `/api/runs/:id/phases` | Artillery phase boundaries from the stored script config. |
 | `GET` | `/api/runs/:id/metrics` | Aggregated metrics from the `1m`, `1h`, or `1d` continuous aggregate. |
 | `GET` | `/api/runs/:id/raw` | Raw metric points, limited to 100,000 rows. |
 | `GET` | `/api/runs/:id/live` | Server-Sent Events stream of raw points plus a terminal run event. |
