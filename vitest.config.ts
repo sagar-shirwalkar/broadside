@@ -17,6 +17,7 @@ export default defineConfig({
         "src/lib/artillery.ts",
         "src/lib/flusher.ts",
         "src/server/app.ts",
+        "src/server/middleware/auth.ts",
         "src/server/grpc.ts",
         "src/server/kafka.ts",
         "src/server/routes/health.ts",

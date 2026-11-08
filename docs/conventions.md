@@ -47,6 +47,13 @@
 ## Configuration
 
 - Read environment variables only in `src/config.ts`.
+- Optional features default to off: empty `API_TOKEN` disables authentication, unset `KAFKA_BROKERS` disables the consumer. Keep `GET /api/health` public — it is the probe endpoint for load balancers.
+
+## Security
+
+- Compare secrets in constant time (`crypto.timingSafeEqual` with a length check first); never `===` a token.
+- Register CORS before authentication so `OPTIONS` preflights are answered without credentials. Preflight requests never carry `Authorization`.
+- Never concatenate untrusted input into SQL (see above); bind id lists as arrays with `ANY(${ids})`.
 - Add new variables to `.env.example` and document them in the README configuration table.
 - Never commit `.env` or secrets.
 

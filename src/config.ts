@@ -14,6 +14,25 @@ export const config = {
     reportDir: process.env.ARTILLERY_REPORT_DIR ?? "data/reports",
   },
 
+  auth: {
+    // Empty disables authentication (local development default). Set a
+    // non-empty token to require `Authorization: Bearer <token>` (or
+    // `?token=` for WebSocket/SSE clients that cannot set headers).
+    token: process.env.API_TOKEN ?? "",
+  },
+
+  cors: {
+    // Comma-separated allow-list of browser origins. Defaults to the Vite
+    // dev server. Set to "*" to allow any origin.
+    origins: (
+      process.env.CORS_ORIGINS ??
+      "http://localhost:5173,http://127.0.0.1:5173"
+    )
+      .split(",")
+      .map((origin) => origin.trim())
+      .filter(Boolean),
+  },
+
   kafka: {
     enabled: Boolean(process.env.KAFKA_BROKERS),
     brokers: process.env.KAFKA_BROKERS?.split(",") ?? [],

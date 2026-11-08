@@ -65,6 +65,17 @@ Rules:
 - A failed insert re-queues the drained batch.
 - `MetricsFlusher` is a singleton exported from `src/lib/flusher.ts`.
 
+## Request pipeline
+
+`src/server/app.ts` wires the HTTP surface in this order:
+
+1. `@hono/structured-logger` — one log line per request.
+2. `hono/cors` — answers `OPTIONS` preflights itself and tags responses with `Access-Control-Allow-Origin` for origins in `CORS_ORIGINS` (default: the Vite dev server). CORS runs first so preflights, which never carry credentials, are not rejected by auth.
+3. Bearer authentication (`src/server/middleware/auth.ts`) on `/api/runs/*` and `/ws`. An empty `API_TOKEN` disables it. The token is compared in constant time (`crypto.timingSafeEqual`); a missing or wrong token gets `401` with `WWW-Authenticate: Bearer`. WebSocket/SSE clients that cannot set headers may pass `?token=` instead.
+4. Routes: `/ws` (upgrade + ingest), `/api/runs`, `/api/health`.
+
+`/api/health` is deliberately public: it runs `SELECT 1` against the database and reports `database.status`, returning `503` with `status: "degraded"` when the database is unreachable, so container orchestrators and monitors can distinguish "process up" from "database down". The gRPC port has no token check.
+
 ## REST routes
 
 Run and metric endpoints (`src/server/routes/runs.ts`):
@@ -79,7 +90,7 @@ Run and metric endpoints (`src/server/routes/runs.ts`):
 - `POST /api/runs` — creates and starts a run (see [Run orchestration](#run-orchestration)).
 - `DELETE /api/runs/:id` — kills an active run, or deletes a finished run and its metrics. Unknown ids return `404`.
 
-`src/server/routes/health.ts` exposes `GET /api/health` with uptime and flusher stats (`buffered`, `dropped`, `flushed`).
+`src/server/routes/health.ts` exposes `GET /api/health` with uptime, a `SELECT 1` database check (`200`/`503`), and flusher stats (`buffered`, `dropped`, `flushed`). It is unauthenticated by design.
 
 Only `1m`, `1h`, and `1d` are valid granularities. The view name is selected with `sql.identifier`, so do not pass unvalidated user input into it. Run ids for `/compare` are bound as values (`id = ANY(${ids})` via `sql` with an array), never interpolated into the query text.
 
@@ -108,7 +119,8 @@ Only `1m`, `1h`, and `1d` are valid granularities. The view name is selected wit
 | `src/index.ts` | Process bootstrap, servers, shutdown. |
 | `src/config.ts` | Environment configuration and defaults. |
 | `src/types.ts` | Shared `MetricPoint`, `RunSummary`, `QueryParams`, `MetricBatch` types. |
-| `src/server/app.ts` | Hono app, `/ws` ingestion, route mounting. |
+| `src/server/app.ts` | Hono app, `/ws` ingestion, route mounting, CORS and auth wiring. |
+| `src/server/middleware/auth.ts` | Bearer token authentication (constant-time compare, query-param fallback). |
 | `src/server/grpc.ts` | Connect service implementation and proto → domain mapping. |
 | `src/server/kafka.ts` | Optional Kafka consumer lifecycle. |
 | `src/server/routes/runs.ts` | Run and metric query endpoints. |
@@ -131,5 +143,6 @@ Only `1m`, `1h`, and `1d` are valid granularities. The view name is selected wit
 - Orchestrated runs are not streamed live: their metrics appear only after Artillery exits and the final report is processed. `GET /api/runs/:id/live` streams points for WS/gRPC/Kafka-fed runs once the flusher writes them. A crash before report processing loses an orchestrated run's metrics.
 - The `runs` list endpoint is offset-paginated; deep offsets on a large `runs` table will get slower as the table grows.
 - The `artillery` binary is not a project dependency; operators must install it on the host or in the runtime image.
+- Authentication is opt-in (`API_TOKEN`, disabled by default) and does not cover the gRPC port; keep that port on a trusted network.
 - `metrics_1h` and `metrics_1d` use `avg(...)` over already-aggregated percentiles; they are approximations rather than recomputed percentiles.
 - Docker Compose publishes port `3000` only; the gRPC port `3001` is not exposed by the default stack.

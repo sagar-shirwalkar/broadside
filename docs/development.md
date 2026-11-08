@@ -65,6 +65,13 @@ pnpm task setup
 - Per-endpoint points require Artillery's `metrics-by-endpoint` plugin. It is enabled by default since Artillery v2.0.1; older or plugin-less reports still produce an aggregate point.
 - Tests mock the Artillery process; they do not require the CLI. Manual runs against a local target are the quickest way to verify parser changes against a new Artillery version.
 
+## Auth and CORS
+
+- Set `API_TOKEN` to require `Authorization: Bearer <token>` on `/api/runs/*`, `/api/runs/:id/live`, and `/ws`. `/api/health` stays public. To test with curl: `curl -H "Authorization: Bearer $API_TOKEN" http://localhost:3000/api/runs`.
+- WebSocket (`/ws`) and EventSource (`/:id/live`) clients accept `?token=` as a fallback because browsers cannot set headers on those transports. The token then appears in server logs, so use it only where the header is impossible.
+- `CORS_ORIGINS` is a comma-separated allow-list, defaulting to `http://localhost:5173,http://127.0.0.1:5173` for the Vite dev server. `*` allows any origin.
+- `test/auth.test.ts` builds a bare Hono app around `createAuthMiddleware` so token handling is tested without touching the real `config`; `test/app.test.ts` covers CORS behavior through `createApp`. The config module reads env at import time, so `test/config.test.ts` uses `vi.resetModules()` and sets `process.env` before importing.
+
 ## Reading run data
 
 - `GET /api/runs?limit=&offset=` — paginate the run list; `limit` is 1–100 (default 100), `offset` is ≥ 0.

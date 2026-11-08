@@ -143,6 +143,52 @@ describe("createApp", () => {
     expect(await runs.json()).toEqual([]);
   });
 
+  it("allows configured browser origins via CORS", async () => {
+    const app = createApp();
+
+    const res = await app.request("/api/health", {
+      headers: { Origin: "http://localhost:5173" },
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("access-control-allow-origin")).toBe(
+      "http://localhost:5173",
+    );
+  });
+
+  it("answers CORS preflight requests without credentials", async () => {
+    const app = createApp();
+
+    const res = await app.request("/api/runs", {
+      method: "OPTIONS",
+      headers: {
+        Origin: "http://localhost:5173",
+        "Access-Control-Request-Method": "POST",
+        "Access-Control-Request-Headers": "Content-Type, Authorization",
+      },
+    });
+
+    expect(res.status).toBe(204);
+    expect(res.headers.get("access-control-allow-origin")).toBe(
+      "http://localhost:5173",
+    );
+    expect(res.headers.get("access-control-allow-methods")).toContain("POST");
+    expect(res.headers.get("access-control-allow-headers")).toContain(
+      "Authorization",
+    );
+  });
+
+  it("does not grant CORS to unlisted origins", async () => {
+    const app = createApp();
+
+    const res = await app.request("/api/health", {
+      headers: { Origin: "https://evil.example" },
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("access-control-allow-origin")).toBeNull();
+  });
+
   it("logs unhandled route errors", async () => {
     const app = createApp();
     app.get("/boom", () => {

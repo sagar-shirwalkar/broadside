@@ -26,11 +26,12 @@ Broadside is a self-hosted backend and dashboard for [Artillery](https://www.art
 
 ## Security
 
-Broadside does **not** include authentication or authorization. Treat the REST, WebSocket, and gRPC ports as trusted internal services:
+Broadside supports shared-secret Bearer authentication for the REST API (including the SSE live feed) and the `/ws` ingest endpoint, but it is **disabled by default**. Treat the REST, WebSocket, and gRPC ports as trusted internal services unless you set a token:
 
-- Bind the service to localhost or run it behind an authenticated reverse proxy with TLS.
-- Do not expose the ingestion ports directly to untrusted networks.
-- Keep `DATABASE_URL` and other credentials in `.env`; never commit them.
+- Set `API_TOKEN` to require `Authorization: Bearer <token>` on `/api/runs/*`, `/api/runs/:id/live`, and `/ws`. `/api/health` stays public so load balancers can probe it. WebSocket and EventSource clients can fall back to `?token=`; prefer the header, since query strings end up in logs.
+- Bind the service to localhost or run it behind an authenticated reverse proxy with TLS when serving beyond a trusted network. The gRPC port (`PORT + 1`) has no token check; keep it on a trusted network.
+- Restrict browser access with `CORS_ORIGINS` (comma-separated allow-list, defaulting to the Vite dev server). Set `CORS_ORIGINS=*` only for deployments that accept any origin.
+- Keep `DATABASE_URL`, `API_TOKEN`, and other credentials in `.env`; never commit them.
 - The ring buffer bounds memory use, but when it is full Broadside drops the oldest samples rather than slowing ingestion.
 
 ## Background
@@ -102,6 +103,7 @@ No global `task` or `buf` install is required; both come from dev dependencies.
    {
      "status": "ok",
      "uptime": 12.3,
+     "database": { "status": "ok" },
      "flusher": { "buffered": 0, "dropped": 0, "flushed": 42 },
      "timestamp": "2026-11-08T12:00:00.000Z"
    }
@@ -300,8 +302,10 @@ curl -s "http://localhost:3000/api/runs/run-123/raw?from=2026-01-01T00:00:00Z"
 | `GET` | `/api/runs/:id/live` | Server-Sent Events stream of raw points plus a terminal run event. |
 | `POST` | `/api/runs` | Start an Artillery run with `{ "script_path": "...", "id"?, "config"?, "extra_args"? }`. |
 | `DELETE` | `/api/runs/:id` | Kill a running run, or delete a finished run and its metrics. |
-| `GET` | `/api/health` | Health, uptime, and flusher statistics. |
+| `GET` | `/api/health` | Health, uptime, database check, and flusher statistics. Public (no token). Returns `503` when the database is unreachable. |
 | `WS` | `/ws` | JSON metric ingestion. |
+
+When `API_TOKEN` is set, the REST endpoints under `/api/runs` (including the SSE stream) and `/ws` require `Authorization: Bearer <token>`; `/api/health` does not. See [Security](#security).
 
 ### Query parameters
 
@@ -438,6 +442,8 @@ All configuration is read in `src/config.ts` from environment variables (loaded 
 | `LOG_LEVEL` | `info` | Pino log level (`trace`, `debug`, `info`, `warn`, `error`, `fatal`, `silent`). |
 | `LOG_PRETTY` | `false` | Set to `true` to format logs with `pino-pretty` for local development. |
 | `ARTILLERY_REPORT_DIR` | `data/reports` | Directory where completed Artillery JSON reports are persisted. |
+| `API_TOKEN` | empty (disabled) | Bearer token required on `/api/runs/*`, `/api/runs/:id/live`, and `/ws`. `/api/health` stays public. |
+| `CORS_ORIGINS` | `http://localhost:5173,http://127.0.0.1:5173` | Comma-separated browser origins allowed by CORS. `*` allows any origin. |
 | `KAFKA_BROKERS` | empty (disabled) | Comma-separated Kafka brokers. Setting this enables the consumer. |
 | `KAFKA_TOPIC` | `artillery.metrics` | Kafka topic to consume. |
 | `RING_CAPACITY` | `16384` | Ring buffer capacity. Rounded up to the next power of two. |
@@ -480,6 +486,7 @@ src/
     app.ts              # Hono app, /ws ingestion, route mounting
     grpc.ts             # Connect/gRPC service implementation
     kafka.ts            # optional Kafka consumer
+    middleware/auth.ts  # Bearer token authentication
     routes/             # REST handlers
   lib/
     normalize.ts        # JSON → MetricPoint
@@ -514,7 +521,7 @@ The GitHub Actions workflow runs:
 - `GET /api/runs/:id/live` streams points once they are written by the flusher. Orchestrated Artillery runs still produce their report at process exit, so their live stream stays quiet until the run finishes. The `artillery` binary must be installed on the host separately.
 - `metrics_1h` / `metrics_1d` aggregate already-aggregated percentiles with `avg(...)`; they are approximations, not recomputed percentiles from raw data.
 - The Docker Compose stack publishes the REST/WS port (`3000`) but not the gRPC port (`3001`).
-- There is no authentication; see [Security](#security).
+- Authentication is an opt-in shared Bearer token (`API_TOKEN`), disabled by default; the gRPC port has no token check. See [Security](#security).
 
 ### Planned work
 
@@ -522,7 +529,7 @@ The GitHub Actions workflow runs:
 - [ ] Stream Artillery metrics live instead of waiting for the final report. (`GET /api/runs/:id/live` already streams points as the flusher writes them; orchestrated reports still arrive at process exit.)
 - [ ] Make retention, compression, and refresh policies configurable.
 - [ ] Publish the gRPC port in the Docker Compose stack.
-- [ ] Add authentication or document a recommended reverse-proxy setup.
+- [ ] Extend Bearer authentication to the gRPC port, or document a recommended reverse-proxy setup that covers it.
 
 ## Contributing
 

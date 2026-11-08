@@ -8,6 +8,8 @@ const envKeys = [
   "LOG_LEVEL",
   "LOG_PRETTY",
   "ARTILLERY_REPORT_DIR",
+  "API_TOKEN",
+  "CORS_ORIGINS",
   "KAFKA_BROKERS",
   "KAFKA_TOPIC",
   "RING_CAPACITY",
@@ -40,6 +42,12 @@ describe("config", () => {
       artillery: {
         reportDir: "data/reports",
       },
+      auth: {
+        token: "",
+      },
+      cors: {
+        origins: ["http://localhost:5173", "http://127.0.0.1:5173"],
+      },
       kafka: {
         enabled: false,
         brokers: [],
@@ -59,6 +67,8 @@ describe("config", () => {
     process.env.LOG_LEVEL = "debug";
     process.env.LOG_PRETTY = "true";
     process.env.ARTILLERY_REPORT_DIR = "/var/lib/broadside/reports";
+    process.env.API_TOKEN = "test-token";
+    process.env.CORS_ORIGINS = " https://dashboard.example.com , https://app.example.com ";
     process.env.KAFKA_BROKERS = "broker-a:9092,broker-b:9092";
     process.env.KAFKA_TOPIC = "custom.metrics";
     process.env.RING_CAPACITY = "256";
@@ -76,6 +86,12 @@ describe("config", () => {
       },
       artillery: {
         reportDir: "/var/lib/broadside/reports",
+      },
+      auth: {
+        token: "test-token",
+      },
+      cors: {
+        origins: ["https://dashboard.example.com", "https://app.example.com"],
       },
       kafka: {
         enabled: true,
