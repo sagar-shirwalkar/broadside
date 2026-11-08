@@ -63,7 +63,9 @@ jobs:
         run: pnpm --dir ui install --frozen-lockfile
 
       - name: Build UI
-        run: pnpm task build:ui
+        # `build:ui` is internal in the Taskfile (only invocable via
+        # `pnpm task build`), so CI calls the leaf command directly.
+        run: pnpm --dir ui build
 
       - name: Type-check (ui)
         run: pnpm --dir ui typecheck
