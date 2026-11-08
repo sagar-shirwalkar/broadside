@@ -2,10 +2,10 @@ import { LitElement, css, html } from "lit";
 import { customElement, property } from "lit/decorators.js";
 
 /**
- * KPI card: mono uppercase label, large tabular value, sparkline of the
- * last N points (with a translucent area beneath, like the charts), and
- * an optional delta (▲▼ %) versus a previous run. The colored dot is
- * the small semantic marker — compact, no icon chips.
+ * KPI card: three centered zones separated by hairlines — mono uppercase
+ * label with a small semantic dot, a tabular value (deliberately modest
+ * so large totals like 45,490 never overflow), and a bottom zone split
+ * into hint (right-aligned toward the center) + sparkline.
  */
 @customElement("broadside-kpi-card")
 export class KpiCard extends LitElement {
@@ -59,6 +59,9 @@ export class KpiCard extends LitElement {
         <div class="top">
           <span class="dot dot-${this.dot}" aria-hidden="true"></span>
           <span class="label">${this.label}</span>
+        </div>
+        <div class="middle">
+          <span class="value">${this.value}</span>
           ${delta === null
             ? ""
             : html`<span class="delta delta-${this.deltaTone}">
@@ -66,11 +69,7 @@ export class KpiCard extends LitElement {
                 ${Math.abs(delta).toFixed(1)}%
               </span>`}
         </div>
-        <div class="value">${this.value}</div>
         <div class="bottom">
-          <span class="hint">
-            ${hintLines.map((line) => html`<span class="hint-line">${line}</span>`)}
-          </span>
           ${path
             ? html`<svg
                 class="spark"
@@ -91,6 +90,9 @@ export class KpiCard extends LitElement {
                 <circle cx="60" cy="16" r="3.5" class="spark-dot" />
               </svg>`
               : ""}
+          <span class="hint">
+            ${hintLines.map((line) => html`<span class="hint-line">${line}</span>`)}
+          </span>
         </div>
       </div>
     `;
@@ -104,6 +106,8 @@ export class KpiCard extends LitElement {
       padding: var(--s-5);
       height: 100%;
       box-sizing: border-box;
+      display: flex;
+      flex-direction: column;
       transition: border-color var(--dur-fast) var(--ease);
     }
     .card:hover {
@@ -112,12 +116,13 @@ export class KpiCard extends LitElement {
     .top {
       display: flex;
       align-items: center;
+      justify-content: center;
       gap: var(--s-2);
-      margin-bottom: var(--s-2);
+      padding-bottom: var(--s-3);
     }
     .dot {
-      width: 8px;
-      height: 8px;
+      width: 7px;
+      height: 7px;
       border-radius: 50%;
       display: inline-block;
       flex: none;
@@ -139,13 +144,26 @@ export class KpiCard extends LitElement {
       letter-spacing: 0.08em;
       text-transform: uppercase;
       white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
+    }
+    .middle {
+      display: flex;
+      align-items: baseline;
+      justify-content: center;
+      gap: var(--s-3);
+      padding: var(--s-3) 0;
+      border-top: 1px solid var(--border);
+    }
+    .value {
+      font-size: var(--step-2);
+      font-weight: 600;
+      letter-spacing: -0.02em;
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
     }
     .delta {
-      margin-left: auto;
       font-size: var(--step--1);
       font-family: var(--font-mono);
+      white-space: nowrap;
     }
     .delta-good {
       color: var(--ok);
@@ -153,19 +171,14 @@ export class KpiCard extends LitElement {
     .delta-bad {
       color: var(--bad);
     }
-    .value {
-      font-size: var(--step-3);
-      font-weight: 600;
-      letter-spacing: -0.02em;
-      font-variant-numeric: tabular-nums;
-    }
     .bottom {
+      margin-top: auto;
+      padding-top: var(--s-3);
+      border-top: 1px solid var(--border);
       display: flex;
-      align-items: flex-end;
-      justify-content: space-between;
-      gap: var(--s-3);
-      margin-top: var(--s-2);
-      min-height: 32px;
+      flex-direction: column;
+      align-items: center;
+      gap: var(--s-2);
     }
     .hint {
       font-size: var(--step--1);
@@ -173,12 +186,17 @@ export class KpiCard extends LitElement {
       color: var(--mute-2);
       display: flex;
       flex-direction: column;
+      align-items: center;
       gap: 1px;
+      text-align: center;
+    }
+    .hint-line {
+      white-space: nowrap;
     }
     .spark {
-      width: 120px;
+      width: 100%;
+      max-width: 110px;
       height: 32px;
-      flex: none;
     }
     .spark-line {
       fill: none;

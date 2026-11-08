@@ -700,8 +700,17 @@ export class RunDetail extends LitElement {
     }
     .kpis {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
       gap: var(--s-4);
+    }
+    @media (min-width: 700px) {
+      .kpis {
+        grid-template-columns: repeat(6, 1fr);
+      }
+    }
+    @media (max-width: 699px) {
+      .kpis {
+        grid-template-columns: repeat(2, 1fr);
+      }
     }
     .filters {
       display: flex;
