@@ -23,7 +23,14 @@
 - Never concatenate untrusted input into SQL strings.
 - Only `metrics_1m`, `metrics_1h`, and `metrics_1d` are valid aggregate view names.
 - Store timestamps in UTC. `MetricsFlusher` converts `Date` values to ISO strings before inserting.
+- For a list of ids, bind the array as a value (`WHERE id = ANY(${ids})`) — postgres.js renders it as a Postgres array — instead of joining ids into the query string. Validate the count server-side (compare allows 2–10).
 - Treat `src/db/schema.sql` as the source of truth for the schema; keep it consistent with the types and queries.
+
+## Query parameter validation
+
+- Parse and bound every query parameter in the route before touching the database: `limit` (1–100), `offset` (≥ 0), `interval_ms` (100–60000), and `granularity` (allow-list). Return `400` with a stable `{ error: "…" }` body instead of letting the database reject it or silently clamping.
+- `undefined` means "not supplied" (use the default); an empty string is a supplied, invalid value and should fail validation.
+- Keep one helper per concern: `parseGranularity`, `parseIntParam`, `parseCompareIds`. A static path such as `/compare` must be registered before `/:id` so it is not captured as a run id.
 
 ## Ingestion and error handling
 

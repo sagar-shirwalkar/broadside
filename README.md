@@ -132,10 +132,13 @@ Broadside can spawn Artillery, capture its JSON report, and store both aggregate
 | Feature | API | Behavior |
 | --- | --- | --- |
 | Start a run | `POST /api/runs` | Requires `script_path`. Inserts a `running` row, spawns `artillery run`, and returns `201` as soon as the process starts. Returns `500` if Artillery cannot start. |
-| List runs | `GET /api/runs` | 100 most recent runs, newest first. |
+| List runs | `GET /api/runs?limit=50&offset=0` | Paginated runs, newest first. `limit` defaults to 100 (max 100). |
 | Check status | `GET /api/runs/:id` | `status` is `running`, `completed`, or `failed`. Completed runs include `duration_ms`, `total_requests`, percentiles, `error_rate`, and `json_path`. |
-| Read metrics | `GET /api/runs/:id/metrics` | Rollups with one row per endpoint per bucket, plus the aggregate row (`endpoint: ""`). |
-| Read raw points | `GET /api/runs/:id/raw` | Unaggregated points, limited to 100,000 rows. |
+| List endpoints | `GET /api/runs/:id/endpoints` | Distinct non-aggregate endpoints in a run, with sample counts. |
+| Read metrics | `GET /api/runs/:id/metrics` | Rollups with one row per endpoint per bucket, plus the aggregate row (`endpoint: ""`). Pass `endpoint` to filter. |
+| Read raw points | `GET /api/runs/:id/raw` | Unaggregated points, limited to 100,000 rows. Pass `endpoint` to filter. |
+| Stream live metrics | `GET /api/runs/:id/live` | Server-Sent Events feed of raw points as they are written, plus a terminal `run` event. |
+| Compare runs | `GET /api/runs/compare?ids=a,b` | Run metadata plus one metric series per run for overlay charts. |
 | Stop or delete | `DELETE /api/runs/:id` | A running run is sent `SIGTERM` and marked `failed`. A finished run and its metrics are deleted. |
 
 Start a run:
@@ -160,6 +163,18 @@ curl -s http://localhost:3000/api/runs/run-123
 
 # Per-endpoint 1-minute rollups
 curl -s "http://localhost:3000/api/runs/run-123/metrics?granularity=1m"
+
+# Only one endpoint
+curl -s "http://localhost:3000/api/runs/run-123/metrics?granularity=1m&endpoint=/api/users"
+
+# Endpoint tabs for the dashboard
+curl -s http://localhost:3000/api/runs/run-123/endpoints
+
+# Side-by-side comparison
+curl -s "http://localhost:3000/api/runs/compare?ids=run-123,run-456"
+
+# Paginate older runs
+curl -s "http://localhost:3000/api/runs?limit=50&offset=100"
 ```
 
 Stop a running test or delete a finished one:
@@ -207,6 +222,35 @@ ws.onopen = () => {
 };
 ```
 
+### Receive live metrics (SSE)
+
+`GET /api/runs/:id/live` is a Server-Sent Events stream for the dashboard. It tails the raw `metrics` hypertable for one run and emits:
+
+| Event | Data | Meaning |
+| --- | --- | --- |
+| `metric` | Raw metric row (`time`, `endpoint`, `rps`, `p50`, `p95`, `p99`, `error_rate`) | A point written after the stream started (or after `from`). |
+| `run` | Run status row | The run reached `completed` or `failed`; the stream then closes. |
+
+```js
+const source = new EventSource(
+  "http://localhost:3000/api/runs/run-123/live?from=2026-01-01T00:00:00Z",
+);
+
+source.addEventListener("metric", (event) => {
+  const point = JSON.parse(event.data);
+  console.log(point.time, point.endpoint, point.p95);
+});
+
+source.addEventListener("run", (event) => {
+  console.log("finished:", JSON.parse(event.data).status);
+  source.close();
+});
+```
+
+Optional query parameters: `from` / `to` (ISO 8601), `endpoint` (exact match), and `interval_ms` (poll interval, 100–60000, default `1000`). The stream reads raw rows with keyset pagination, so points written in the same millisecond (the aggregate row plus every endpoint in one Artillery bucket) are all delivered. Because the flusher batches writes every `FLUSH_INTERVAL_MS`, live data trails ingestion by roughly that interval.
+
+> Orchestrated Artillery runs still parse their report when the process exits, so an SSE stream for a run started through `POST /api/runs` stays quiet until the run finishes. Live streaming is most useful for metrics pushed over WebSocket, gRPC, or Kafka.
+
 ### Send metrics over Kafka (optional)
 
 Set `KAFKA_BROKERS` and publish JSON `MetricBatch` messages to `KAFKA_TOPIC` (default `artillery.metrics`):
@@ -247,10 +291,13 @@ curl -s "http://localhost:3000/api/runs/run-123/raw?from=2026-01-01T00:00:00Z"
 
 | Method | Path | Description |
 | --- | --- | --- |
-| `GET` | `/api/runs` | List the 100 most recent runs. |
+| `GET` | `/api/runs` | Paginated runs, newest first (`limit`, `offset`). |
+| `GET` | `/api/runs/compare` | Compare several runs (`ids=a,b,c`). |
 | `GET` | `/api/runs/:id` | Fetch one run, or `404` if it does not exist. |
+| `GET` | `/api/runs/:id/endpoints` | Distinct non-aggregate endpoints with sample counts. |
 | `GET` | `/api/runs/:id/metrics` | Aggregated metrics from the `1m`, `1h`, or `1d` continuous aggregate. |
 | `GET` | `/api/runs/:id/raw` | Raw metric points, limited to 100,000 rows. |
+| `GET` | `/api/runs/:id/live` | Server-Sent Events stream of raw points plus a terminal run event. |
 | `POST` | `/api/runs` | Start an Artillery run with `{ "script_path": "...", "id"?, "config"?, "extra_args"? }`. |
 | `DELETE` | `/api/runs/:id` | Kill a running run, or delete a finished run and its metrics. |
 | `GET` | `/api/health` | Health, uptime, and flusher statistics. |
@@ -258,18 +305,31 @@ curl -s "http://localhost:3000/api/runs/run-123/raw?from=2026-01-01T00:00:00Z"
 
 ### Query parameters
 
-`GET /api/runs/:id/metrics` and `GET /api/runs/:id/raw` accept:
+`GET /api/runs` accepts:
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `limit` | integer, 1–100 | Page size. Defaults to `100`. |
+| `offset` | integer, ≥ 0 | Rows to skip. Defaults to `0`. |
+
+`GET /api/runs/:id/metrics`, `GET /api/runs/:id/raw`, and `GET /api/runs/:id/live` accept:
 
 | Parameter | Applies to | Type | Description |
 | --- | --- | --- | --- |
 | `granularity` | `/metrics` | `1m`, `1h`, or `1d` | Rollup view. Defaults to `1m`. |
-| `from` | both | ISO 8601 timestamp | Inclusive lower bound. Optional. |
-| `to` | both | ISO 8601 timestamp | Inclusive upper bound. Optional. |
+| `from` | all | ISO 8601 timestamp | Inclusive lower bound. Optional. |
+| `to` | all | ISO 8601 timestamp | Inclusive upper bound. Optional. |
+| `endpoint` | all | string | Exact endpoint match. Use the empty string for the aggregate row. Optional. |
+| `interval_ms` | `/live` | integer, 100–60000 | Poll interval. Defaults to `1000`. |
 
-Example:
+`GET /api/runs/compare` accepts `ids` (comma-separated, 2–10 runs, required), `granularity`, `from`, `to`, and `endpoint`.
+
+Examples:
 
 ```bash
 curl "http://localhost:3000/api/runs/run-123/metrics?granularity=1m&from=2026-01-01T00:00:00Z"
+curl "http://localhost:3000/api/runs?limit=50&offset=100"
+curl "http://localhost:3000/api/runs/compare?ids=run-123,run-456&granularity=1m"
 ```
 
 ### gRPC / Connect
@@ -451,7 +511,7 @@ The GitHub Actions workflow runs:
 ### Known limitations
 
 - The dashboard UI is not implemented (`ui/` only contains a placeholder).
-- Runs are not streamed live; metrics become visible after Artillery exits and the report is processed. The `artillery` binary must be installed on the host separately.
+- `GET /api/runs/:id/live` streams points once they are written by the flusher. Orchestrated Artillery runs still produce their report at process exit, so their live stream stays quiet until the run finishes. The `artillery` binary must be installed on the host separately.
 - `metrics_1h` / `metrics_1d` aggregate already-aggregated percentiles with `avg(...)`; they are approximations, not recomputed percentiles from raw data.
 - The Docker Compose stack publishes the REST/WS port (`3000`) but not the gRPC port (`3001`).
 - There is no authentication; see [Security](#security).
@@ -459,7 +519,7 @@ The GitHub Actions workflow runs:
 ### Planned work
 
 - [ ] Implement the dashboard UI in `ui/`.
-- [ ] Stream Artillery metrics live instead of waiting for the final report.
+- [ ] Stream Artillery metrics live instead of waiting for the final report. (`GET /api/runs/:id/live` already streams points as the flusher writes them; orchestrated reports still arrive at process exit.)
 - [ ] Make retention, compression, and refresh policies configurable.
 - [ ] Publish the gRPC port in the Docker Compose stack.
 - [ ] Add authentication or document a recommended reverse-proxy setup.

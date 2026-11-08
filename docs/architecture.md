@@ -69,16 +69,29 @@ Rules:
 
 Run and metric endpoints (`src/server/routes/runs.ts`):
 
-- `GET /api/runs` — latest 100 runs from `runs`.
+- `GET /api/runs` — paginated runs from `runs`, newest first. `limit` defaults to 100 (1–100); `offset` defaults to 0.
+- `GET /api/runs/compare` — metadata plus one metric series per run for overlay charts. Requires `ids` with 2–10 comma-separated ids, de-duplicated; returns `400` otherwise. Registered before `/:id` so the static path wins.
 - `GET /api/runs/:id` — one run or `404`.
-- `GET /api/runs/:id/metrics` — reads `metrics_1m`, `metrics_1h`, or `metrics_1d`. `granularity` defaults to `1m`; `from`/`to` are optional time filters.
-- `GET /api/runs/:id/raw` — reads the raw `metrics` hypertable, limited to 100,000 rows.
+- `GET /api/runs/:id/endpoints` — distinct non-aggregate endpoints in a run with sample counts, for dashboard filter tabs.
+- `GET /api/runs/:id/metrics` — reads `metrics_1m`, `metrics_1h`, or `metrics_1d`. `granularity` defaults to `1m`; `from`/`to` are optional time filters; `endpoint` filters to one endpoint (or the aggregate row when empty).
+- `GET /api/runs/:id/raw` — reads the raw `metrics` hypertable, limited to 100,000 rows; accepts the same `from`/`to`/`endpoint` filters.
+- `GET /api/runs/:id/live` — Server-Sent Events stream (see below).
 - `POST /api/runs` — creates and starts a run (see [Run orchestration](#run-orchestration)).
 - `DELETE /api/runs/:id` — kills an active run, or deletes a finished run and its metrics. Unknown ids return `404`.
 
 `src/server/routes/health.ts` exposes `GET /api/health` with uptime and flusher stats (`buffered`, `dropped`, `flushed`).
 
-Only `1m`, `1h`, and `1d` are valid granularities. The view name is selected with `sql.identifier`, so do not pass unvalidated user input into it.
+Only `1m`, `1h`, and `1d` are valid granularities. The view name is selected with `sql.identifier`, so do not pass unvalidated user input into it. Run ids for `/compare` are bound as values (`id = ANY(${ids})` via `sql` with an array), never interpolated into the query text.
+
+### Live stream
+
+`GET /api/runs/:id/live` uses Hono's `streamSSE` and tails the raw hypertable for one run:
+
+- It polls with keyset pagination over `(time, COALESCE(endpoint, ''))`, so rows sharing a timestamp (aggregate + every endpoint in one Artillery bucket) are all delivered in order instead of being skipped.
+- Each row is emitted as a `metric` event. When the `runs` row leaves `running`, a terminal `run` event with the status is emitted and the stream closes.
+- `from`/`to` bound the feed, `endpoint` filters it, and `interval_ms` sets the poll interval (100–60000, default 1000).
+- The stream has no backfill-then-poll distinction: it simply resumes from `from` (or the epoch) on connect, so reconnects replay points already written. Because the flusher batches writes, there is an inherent lag of roughly `FLUSH_INTERVAL_MS`. Orchestrated runs write their points only at exit, so their stream is quiet until completion; the stream is most useful for WS/gRPC/Kafka-fed runs.
+- Client disconnect sets `stream.aborted` and ends the loop; the route does not hold the connection open after that.
 
 ## Data model
 
@@ -115,7 +128,8 @@ Only `1m`, `1h`, and `1d` are valid granularities. The view name is selected wit
 ## Known gaps and rough edges
 
 - `ui/` contains only a `.gitkeep`, so `pnpm task build` fails at the `build:ui` step. Use `pnpm build`.
-- Runs are not streamed live; metrics appear only after Artillery exits and the final report is processed. A crash before report processing loses that run's metrics.
+- Orchestrated runs are not streamed live: their metrics appear only after Artillery exits and the final report is processed. `GET /api/runs/:id/live` streams points for WS/gRPC/Kafka-fed runs once the flusher writes them. A crash before report processing loses an orchestrated run's metrics.
+- The `runs` list endpoint is offset-paginated; deep offsets on a large `runs` table will get slower as the table grows.
 - The `artillery` binary is not a project dependency; operators must install it on the host or in the runtime image.
 - `metrics_1h` and `metrics_1d` use `avg(...)` over already-aggregated percentiles; they are approximations rather than recomputed percentiles.
 - Docker Compose publishes port `3000` only; the gRPC port `3001` is not exposed by the default stack.

@@ -53,15 +53,25 @@ pnpm task setup
 - `pnpm test` runs the suite; `pnpm test:coverage` enforces 80% statements, branches, functions, and lines.
 - Database and Kafka dependencies are mocked. Unit tests do not require a running TimescaleDB.
 - `test/artillery.test.ts` mocks `node:child_process`, `node:fs/promises`, the DB client, the logger, config, and the flusher. Use its fake process helper to drive `close`/`error` events; wrap assertions for async handlers in `vi.waitFor`.
+- `test/runs.test.ts` exercises the REST surface through `testClient` with a mocked `sql` tagged-template. Because the mock records template parts and values separately, assertions on pagination or `ANY (${ids})` inspect the value indexes (`call[1]`, `call[2]`, …) rather than the SQL text.
+- `src/server/routes/runs.ts` tests the SSE stream through the router itself (`runs.request(...)`) so `streamSSE` writes real `text/event-stream` chunks; assert on the response body text and on the recorded `sql` calls.
 - `src/index.ts`, `src/gen/**`, and `src/lib/fplib/**` are excluded from coverage. `src/index.ts` starts real servers and exits the process. `src/lib/artillery.ts` is included in the coverage gate.
 
 ## Artillery runs
 
 - `POST /api/runs` requires `script_path`; a missing/blank path returns `400`, a path containing `..` returns `400`, and an already-active id returns `409`.
-- The server invokes `artillery run <script> --output <temp>/report.json --quiet` plus any `extra_args`. The report is parsed only after the process exits.
+- The server invokes `artillery run <script> --output <temp>/report.json --quiet` plus any `extra_args`. The report is parsed only after the process exits, which sets `status` to `completed`, fills `duration_ms` / `total_requests` / percentiles / `error_rate`, and ingests the points through the flusher. A non-zero exit, spawn failure, or parsing error marks the run `failed`.
 - Completed reports are copied to `ARTILLERY_REPORT_DIR` (default `data/reports`) and recorded in `runs.json_path`. The directory is gitignored.
 - Per-endpoint points require Artillery's `metrics-by-endpoint` plugin. It is enabled by default since Artillery v2.0.1; older or plugin-less reports still produce an aggregate point.
 - Tests mock the Artillery process; they do not require the CLI. Manual runs against a local target are the quickest way to verify parser changes against a new Artillery version.
+
+## Reading run data
+
+- `GET /api/runs?limit=&offset=` — paginate the run list; `limit` is 1–100 (default 100), `offset` is ≥ 0.
+- `GET /api/runs/:id/endpoints` — distinct non-aggregate endpoints with sample counts; what the dashboard uses to render filter tabs.
+- `GET /api/runs/:id/metrics` and `/raw` accept `endpoint=` for server-side filtering. The aggregate row is `endpoint=`.
+- `GET /api/runs/compare?ids=a,b,c` — metadata plus one series per run. `ids` is required, 2–10 after de-duplication; `granularity`/`from`/`to`/`endpoint` work as on `/metrics`.
+- `GET /api/runs/:id/live` — SSE feed of raw points plus a terminal `run` event. `interval_ms` bounds polling between 100 and 60000 (default 1000). To try it locally, push points over `/ws` in a loop and open the stream with `curl -N`.
 
 ## Logging
 
