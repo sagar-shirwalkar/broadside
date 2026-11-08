@@ -82,7 +82,7 @@ export interface PhaseAnnotation {
   name: string;
 }
 
-export type Granularity = "1m" | "1h" | "1d";
+export type Granularity = "10s" | "1m" | "1h" | "1d";
 
 export interface ChartPoint {
   time: number;

@@ -225,7 +225,9 @@ test("compare: selecting two runs renders charts and a KPI table", async ({
   await page.locator("broadside-compare-view .btn.primary").click();
 
   await expect(page.locator("broadside-compare-view table tbody tr")).toHaveCount(2);
-  await expect(page.locator("broadside-line-chart")).toHaveCount(3);
+  // 9 panels now: throughput, p95, error rate, active vusers, tail spread,
+  // error count, created/completed, CDF, histogram.
+  await expect(page.locator("broadside-line-chart")).toHaveCount(9);
 });
 
 test("kill: confirming on a running run deletes and returns to the list", async ({

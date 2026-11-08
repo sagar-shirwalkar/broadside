@@ -1,6 +1,15 @@
 import { LitElement, css, html } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import { apiGet, RUN_STATUS_EVENT, sseUrl } from "../api.js";
+import {
+  activeVusers,
+  cdfFromLatest,
+  errorCount,
+  histogramFromLatest,
+  tailSpread,
+  toBucket,
+  vusersIo,
+} from "../derived-series.js";
 import type { ChartSeries, RawRow, RunRow } from "../types.js";
 import { formatDuration, formatMs, formatNumber, formatPercent } from "../format.js";
 import { navigate } from "../router.js";
@@ -16,6 +25,16 @@ interface LivePoint {
   p95: number | null;
   p99: number | null;
   error_rate: number | null;
+  vusers_started?: number | string | null;
+  vusers_stopped?: number | string | null;
+  vusers_created?: number | string | null;
+  vusers_completed?: number | string | null;
+  error_count?: number | string | null;
+  hist_min?: number | null;
+  hist_max?: number | null;
+  hist_p75?: number | null;
+  hist_p90?: number | null;
+  hist_p999?: number | null;
 }
 
 const BUFFER = 600; // 10 min at 1 Hz
@@ -152,11 +171,36 @@ export class LiveView extends LitElement {
     ];
   }
 
+  /** Aggregate buckets in time order for the derived charts. */
+  private buckets() {
+    return this.points
+      .filter((p) => p.endpoint === "")
+      .map((p) =>
+        toBucket(
+          {
+            vusers_created: p.vusers_created ?? null,
+            vusers_completed: p.vusers_completed ?? null,
+            error_count: p.error_count ?? null,
+            p50: p.p50,
+            p95: p.p95,
+            p99: p.p99,
+            hist_min: p.hist_min ?? null,
+            hist_max: p.hist_max ?? null,
+            hist_p75: p.hist_p75 ?? null,
+            hist_p90: p.hist_p90 ?? null,
+            hist_p999: p.hist_p999 ?? null,
+          },
+          new Date(p.time).getTime(),
+        ),
+      );
+  }
+
   override render() {
     const aggregate = this.series((p) => p.rps, "");
     const endpointSeries =
       this.endpoint === "" ? [] : this.series((p) => p.rps, this.endpoint);
     const errorSeries = this.series((p) => p.error_rate, "");
+    const buckets = this.buckets();
 
     return html`
       <div class="page">
@@ -197,21 +241,68 @@ export class LiveView extends LitElement {
           ? html`<broadside-skeleton variant="chart"></broadside-skeleton>`
           : html`<div class="grid">
               <broadside-chart-panel
-                title="requests / second"
+                title="throughput"
+                .info=${"Requests per second over time — the load the system actually felt."}
                 .series=${[...aggregate, ...endpointSeries]}
                 yFormat="req/s"
                 .fill=${true}
               ></broadside-chart-panel>
               <broadside-chart-panel
                 title="latency percentiles"
+                .info=${"p50 / p95 / p99 latency over time — how slow is the typical, slow and slowest request?"}
                 .series=${this.latencySeries()}
                 yFormat="ms"
               ></broadside-chart-panel>
               <broadside-chart-panel
                 title="error rate"
+                .info=${"Failed share of requests per interval — is the error budget holding?"}
                 .series=${errorSeries}
                 yFormat="%"
                 .fill=${true}
+              ></broadside-chart-panel>
+              <broadside-chart-panel
+                title="active virtual users"
+                .info=${"started minus stopped, cumulative — the load shape: ramp, hold, teardown. RPS tells you what happened; VUsers tell you why."}
+                .series=${[{ name: "active vusers", colorIndex: 4, points: activeVusers(buckets) }]}
+                yFormat="count"
+                .fill=${true}
+              ></broadside-chart-panel>
+              <broadside-chart-panel
+                title="tail latency spread"
+                .info=${"p99 divided by p50. Flat means the tail tracks the median; a spike means some requests are much slower than others."}
+                .series=${[{ name: "p99 / p50", colorIndex: 2, points: tailSpread(buckets) }]}
+                yFormat="count"
+                .fill=${true}
+              ></broadside-chart-panel>
+              <broadside-chart-panel
+                title="error count"
+                .info=${"Absolute error count, cumulative. The rate hides volume: 0.1% of 1M requests is still a thousand errors."}
+                .series=${[{ name: "errors", colorIndex: 3, points: errorCount(buckets) }]}
+                yFormat="count"
+                .fill=${true}
+              ></broadside-chart-panel>
+              <broadside-chart-panel
+                title="vusers created vs completed"
+                .info=${"Created vs. completed VUsers. Created running ahead of completed means in-flight work accumulating — backpressure."}
+                .series=${vusersIo(buckets)}
+                yFormat="count"
+              ></broadside-chart-panel>
+              <broadside-chart-panel
+                title="latency CDF"
+                .info=${"Share of requests at or under each latency. The knee shows where most traffic lands; the long tail shows the outliers. Approximated from the report's percentiles."}
+                .series=${cdfFromLatest(buckets)}
+                yFormat="%"
+                kind="step"
+                xFormat="number"
+                .fill=${true}
+              ></broadside-chart-panel>
+              <broadside-chart-panel
+                title="latency histogram"
+                .info=${"Approximate distribution shape from the report's percentiles."}
+                .series=${histogramFromLatest(buckets)}
+                yFormat="%"
+                kind="bars"
+                xFormat="number"
               ></broadside-chart-panel>
             </div>`}
       </div>

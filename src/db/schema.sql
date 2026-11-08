@@ -65,6 +65,32 @@ CREATE TABLE IF NOT EXISTS runs (
 -- views resolves to the *source* CAGG's bucket column (not the new
 -- time_bucket output), which makes TimescaleDB reject the definition with
 -- "continuous aggregate view must include a valid time bucket function".
+CREATE MATERIALIZED VIEW IF NOT EXISTS metrics_10s
+WITH (timescaledb.continuous) AS
+SELECT
+  time_bucket('10 seconds', time) AS bucket,
+  run_id,
+  endpoint,
+  avg(rps)        AS rps,
+  percentile_cont(0.50) WITHIN GROUP (ORDER BY p50)  AS p50,
+  percentile_cont(0.75) WITHIN GROUP (ORDER BY hist_p75) AS hist_p75,
+  percentile_cont(0.90) WITHIN GROUP (ORDER BY hist_p90) AS hist_p90,
+  percentile_cont(0.95) WITHIN GROUP (ORDER BY p95)  AS p95,
+  percentile_cont(0.99) WITHIN GROUP (ORDER BY p99)  AS p99,
+  percentile_cont(0.999) WITHIN GROUP (ORDER BY hist_p999) AS hist_p999,
+  min(hist_min) AS hist_min,
+  max(hist_max) AS hist_max,
+  avg(error_rate) AS error_rate,
+  sum(vusers_started)   AS vusers_started,
+  sum(vusers_stopped)   AS vusers_stopped,
+  sum(vusers_created)   AS vusers_created,
+  sum(vusers_completed) AS vusers_completed,
+  sum(error_count)      AS error_count,
+  count(*)        AS samples
+FROM metrics
+GROUP BY 1, 2, 3
+WITH NO DATA;
+
 CREATE MATERIALIZED VIEW IF NOT EXISTS metrics_1m
 WITH (timescaledb.continuous) AS
 SELECT
@@ -144,6 +170,13 @@ GROUP BY 1, 2, 3
 WITH NO DATA;
 
 -- Refresh policies
+SELECT add_continuous_aggregate_policy('metrics_10s',
+  start_offset => INTERVAL '3 hours',
+  end_offset   => INTERVAL '10 seconds',
+  schedule_interval => INTERVAL '1 minute',
+  if_not_exists => TRUE
+);
+
 SELECT add_continuous_aggregate_policy('metrics_1m',
   start_offset => INTERVAL '3 hours',
   end_offset   => INTERVAL '1 minute',
@@ -166,6 +199,7 @@ SELECT add_continuous_aggregate_policy('metrics_1d',
 );
 
 -- Real-time CAGGs (union materialized + live)
+ALTER MATERIALIZED VIEW metrics_10s SET (timescaledb.materialized_only = false);
 ALTER MATERIALIZED VIEW metrics_1m SET (timescaledb.materialized_only = false);
 ALTER MATERIALIZED VIEW metrics_1h SET (timescaledb.materialized_only = false);
 

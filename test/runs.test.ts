@@ -296,7 +296,7 @@ describe("runs routes", () => {
   });
 
   it("rejects too many comparison ids", async () => {
-    const ids = Array.from({ length: 11 }, (_, index) => `run-${index}`);
+    const ids = Array.from({ length: 6 }, (_, index) => `run-${index}`);
 
     const res = await client.compare.$get({
       query: { ids: ids.join(",") },
@@ -304,7 +304,7 @@ describe("runs routes", () => {
 
     expect(res.status).toBe(400);
     expect(await res.json()).toEqual({
-      error: "at most 10 ids are allowed",
+      error: "at most 5 ids are allowed",
     });
   });
 

@@ -115,10 +115,14 @@ export class App extends LitElement {
     return html`
       <div class="shell">
         <aside class="sidebar ${this.sidebarOpen ? "open" : ""}">
-          <div class="brand">
+          <button
+            class="brand"
+            @click=${() => navigate("/")}
+            aria-label="Broadside — home"
+          >
             <img src="/favicon.svg" alt="" class="brand-img" />
             <span class="brand-name">Broadside</span>
-          </div>
+          </button>
           <nav>
             <a
               class=${this.navClass("list")}
@@ -210,7 +214,7 @@ export class App extends LitElement {
       left: 0;
       top: 0;
       bottom: 0;
-      width: 160px;
+      width: 208px;
       z-index: 10;
       background: var(--ink-2);
       border-right: 1px solid var(--rule);
@@ -220,25 +224,31 @@ export class App extends LitElement {
     .brand {
       display: flex;
       align-items: center;
+      justify-content: center;
       gap: var(--s-2);
       padding: var(--s-4) var(--s-3);
       font-family: var(--font-mono);
+      background: transparent;
+      border: none;
+      border-bottom: none;
+      cursor: pointer;
+      text-align: center;
     }
     .brand-img {
-      width: 22px;
-      height: 22px;
+      width: 24px;
+      height: 24px;
       flex: none;
     }
     .brand-name {
-      font-size: var(--step-1);
+      font-size: var(--step-2);
       font-weight: 600;
       color: var(--text);
-      letter-spacing: 0.01em;
+      letter-spacing: -0.02em;
     }
     nav {
       display: flex;
       flex-direction: column;
-      gap: var(--s-1);
+      gap: var(--s-2);
       padding: var(--s-3);
     }
     .glyph {
@@ -264,15 +274,17 @@ export class App extends LitElement {
       transition: all var(--dur-fast) var(--ease);
     }
     .nav-item:hover {
-      background: var(--surface-2);
-      color: var(--text);
+      background: transparent;
+      border-color: var(--amber);
+      color: var(--amber);
     }
     .nav-item.active {
-      background: var(--text);
-      color: var(--bg);
+      background: var(--amber);
+      border-color: var(--amber);
+      color: var(--ink);
     }
     .main {
-      margin-left: 160px;
+      margin-left: 208px;
       flex: 1;
       min-width: 0;
       display: flex;

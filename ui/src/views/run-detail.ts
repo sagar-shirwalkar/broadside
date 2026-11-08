@@ -12,7 +12,16 @@ import type {
   RawRow,
   RunRow,
 } from "../types.js";
-import { cumulative, num } from "../types.js";
+import { num } from "../types.js";
+import {
+  activeVusers,
+  cdfFromLatest,
+  errorCount,
+  histogramFromLatest,
+  tailSpread,
+  toBucket,
+  vusersIo,
+} from "../derived-series.js";
 import { decimateForRender } from "../lttb.js";
 import {
   formatDuration,
@@ -119,6 +128,10 @@ export class RunDetail extends LitElement {
       this.run = await apiGet<RunRow>(
         `/api/runs/${encodeURIComponent(this.runId)}`,
       );
+      // A 1-minute rollup collapses sub-2-minute runs into a single
+      // bucket — offer the 10s CAGG instead so charts have shape.
+      this.granularity =
+        (this.run.duration_ms ?? Infinity) < 120_000 ? "10s" : "1m";
       window.dispatchEvent(
         new CustomEvent(RUN_STATUS_EVENT, {
           detail: this.run.status,
@@ -280,96 +293,32 @@ export class RunDetail extends LitElement {
 
   // ─── Derived new-chart series ───
 
+  private buckets() {
+    return this.rows.map((r) => toBucket(r, new Date(r.bucket).getTime()));
+  }
+
   private activeVusers(): ChartPoint[] {
-    return cumulative(
-      this.points(this.rows, (r) => {
-        const s = num(r.vusers_started);
-        const t = num(r.vusers_stopped);
-        return s !== null && t !== null ? s - t : null;
-      }),
-    );
+    return activeVusers(this.buckets());
   }
 
   private tailSpread(): ChartPoint[] {
-    return this.points(this.rows, (r) => {
-      const p50 = r.p50;
-      const p99 = r.p99;
-      return p50 && p99 && p50 > 0 ? p99 / p50 : null;
-    });
+    return tailSpread(this.buckets());
   }
 
   private errorCount(): ChartPoint[] {
-    return cumulative(
-      this.points(this.rows, (r) => num(r.error_count)),
-    );
+    return errorCount(this.buckets());
   }
 
   private vusersIo(): ChartSeries[] {
-    return [
-      {
-        name: "created",
-        colorIndex: 1,
-        points: cumulative(
-          this.points(this.rows, (r) => num(r.vusers_created)),
-        ),
-      },
-      {
-        name: "completed",
-        colorIndex: 2,
-        points: cumulative(
-          this.points(this.rows, (r) => num(r.vusers_completed)),
-        ),
-      },
-    ];
+    return vusersIo(this.buckets());
   }
 
-  /** CDF from the latest bucket's quantiles: (latency ms → share of
-   *  requests). Approximated from the report's percentile points. */
   private cdfSeries(): ChartSeries[] {
-    const last = this.rows[this.rows.length - 1];
-    if (!last) return [];
-    const quantiles: Array<[number | null, number]> = [
-      [num(last.hist_min), 0.001],
-      [last.p50, 0.5],
-      [num(last.hist_p75), 0.75],
-      [num(last.hist_p90), 0.9],
-      [last.p95, 0.95],
-      [last.p99, 0.99],
-      [num(last.hist_p999), 0.999],
-      [num(last.hist_max), 1.0],
-    ];
-    const points = quantiles
-      .filter((q): q is [number, number] => q[0] !== null)
-      .map(([ms, frac]) => ({ time: ms, value: frac }));
-    return points.length > 0
-      ? [{ name: "share of requests", colorIndex: 1, points }]
-      : [];
+    return cdfFromLatest(this.buckets());
   }
 
-  /** Quantile shares as a histogram: how much traffic falls in each band. */
   private histogramSeries(): ChartSeries[] {
-    const last = this.rows[this.rows.length - 1];
-    if (!last) return [];
-    const edges: Array<[number | null, number]> = [
-      [last.p50, 0.5],
-      [num(last.hist_p75), 0.75],
-      [num(last.hist_p90), 0.9],
-      [last.p95, 0.95],
-      [last.p99, 0.99],
-      [num(last.hist_p999), 0.999],
-      [num(last.hist_max), 1.0],
-    ];
-    const points: ChartPoint[] = [];
-    let prev = 0;
-    for (const [ms, frac] of edges) {
-      if (ms === null) continue;
-      points.push({ time: ms, value: (frac - prev) * 100 });
-      prev = frac;
-      if (frac >= 1.0) break;
-    }
-    return points.length > 0
-      ? [{ name: "share of requests", colorIndex: 1, points }]
-      : [];
+    return histogramFromLatest(this.buckets());
   }
 
   private async onZoom(event: CustomEvent<{ from: number; to: number }>, key: PanelKey) {
@@ -467,7 +416,14 @@ export class RunDetail extends LitElement {
             <h3 class="mono">${run.id.slice(0, 8)}</h3>
           </div>
           <div class="header-actions">
-            <button class="btn" @click=${() => navigate(`/runs/${run.id}/live`)}>
+            <button
+              class="btn"
+              ?disabled=${run.status !== "running"}
+              title=${run.status === "running"
+                ? "watch this run live"
+                : "run finished — the dashboard below is the full report"}
+              @click=${() => navigate(`/runs/${run.id}/live`)}
+            >
               ● live
             </button>
             <button class="btn danger" @click=${() => (this.confirmOpen = true)}>
@@ -538,6 +494,7 @@ export class RunDetail extends LitElement {
               .value=${this.granularity}
               @change=${this.onGranularityChange}
             >
+              <option value="10s">10 seconds</option>
               <option value="1m">1 minute</option>
               <option value="1h">1 hour</option>
               <option value="1d">1 day</option>

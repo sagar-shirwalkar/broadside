@@ -14,12 +14,12 @@ import type { PhaseAnnotation } from "../../types.js";
 
 const runs = new Hono();
 
-const GRANULARITIES = ["1m", "1h", "1d"] as const;
+const GRANULARITIES = ["10s", "1m", "1h", "1d"] as const;
 type Granularity = (typeof GRANULARITIES)[number];
 
 const DEFAULT_PAGE_LIMIT = 100;
 const MAX_PAGE_LIMIT = 100;
-const MAX_COMPARE_IDS = 10;
+const MAX_COMPARE_IDS = 5;
 
 const DEFAULT_LIVE_INTERVAL_MS = 1_000;
 const MIN_LIVE_INTERVAL_MS = 100;

@@ -5,14 +5,25 @@ import type {
   ChartSeries,
   CompareResponse,
   EndpointRow,
+  Granularity,
   MetricRow,
   RunRow,
 } from "../types.js";
 import { formatDuration, formatMs, formatNumber, formatPercent, latencyClass } from "../format.js";
+import {
+  activeVusers,
+  cdfFromLatest,
+  errorCount,
+  histogramFromLatest,
+  tailSpread,
+  toBucket,
+  vusersIo,
+  type Bucket,
+} from "../derived-series.js";
 import "../components/chart-panel.js";
 import "../components/skeleton.js";
 
-const MAX_COMPARE = 10;
+const MAX_COMPARE = 5;
 
 @customElement("broadside-compare-view")
 export class CompareView extends LitElement {
@@ -21,6 +32,7 @@ export class CompareView extends LitElement {
   @state() private data: CompareResponse | null = null;
   @state() private loading = false;
   @state() private endpoint = "";
+  @state() private granularity: Granularity = "10s";
   @state() private endpointOptions: EndpointRow[] = [];
 
   override connectedCallback() {
@@ -48,7 +60,10 @@ export class CompareView extends LitElement {
     if (!ids) return;
     this.loading = true;
     try {
-      const params = new URLSearchParams({ ids });
+      const params = new URLSearchParams({
+        ids,
+        granularity: this.granularity,
+      });
       if (this.endpoint !== "") params.set("endpoint", this.endpoint);
       this.data = await apiGet<CompareResponse>(
         `/api/runs/compare?${params}`,
@@ -89,6 +104,46 @@ export class CompareView extends LitElement {
         points,
       };
     });
+  }
+
+  /** Rows for one run in time order, normalized into buckets. */
+  private runBuckets(runId: string): Bucket[] {
+    return [...(this.data?.series ?? [])]
+      .filter((row) => row.run_id === runId)
+      .sort((a, b) => a.bucket.localeCompare(b.bucket))
+      .map((row) => toBucket(row, new Date(row.bucket).getTime()));
+  }
+
+  /** One series per comparable run, tagged with run color order. */
+  private multiSeries(
+    pick: (buckets: Bucket[]) => ChartSeries["points"],
+  ): ChartSeries[] {
+    if (!this.data) return [];
+    return this.data.runs.map((run, index) => ({
+      name: run.id.slice(0, 8),
+      colorIndex: (index % 5) + 1,
+      points: pick(this.runBuckets(run.id)),
+    }));
+  }
+
+  /** Points of one run from a raw bucket projection. */
+  private runPoints(
+    buckets: Bucket[],
+    pick: (b: Bucket) => number | null,
+  ): ChartSeries["points"] {
+    return buckets
+      .map((b) => ({ time: b.time, value: pick(b) }))
+      .filter((p): p is { time: number; value: number } => p.value !== null);
+  }
+
+  private cdfRun(runId: string): ChartSeries[] {
+    const last = this.runBuckets(runId).at(-1);
+    return last ? cdfFromLatest([last]) : [];
+  }
+
+  private histogramRun(runId: string): ChartSeries[] {
+    const last = this.runBuckets(runId).at(-1);
+    return last ? histogramFromLatest([last]) : [];
   }
 
   private bestIn(column: (r: RunRow) => number | null, lowest = true): string | null {
@@ -137,8 +192,25 @@ export class CompareView extends LitElement {
                   </select>
                 </label>`
               : ""}
+            <label class="field">
+              <span class="label">Granularity</span>
+              <select
+                class="select"
+                .value=${this.granularity}
+                @change=${(e: Event) => {
+                  this.granularity = (e.target as HTMLSelectElement)
+                    .value as Granularity;
+                  if (this.data) void this.compare();
+                }}
+              >
+                <option value="10s">10 seconds</option>
+                <option value="1m">1 minute</option>
+                <option value="1h">1 hour</option>
+                <option value="1d">1 day</option>
+              </select>
+            </label>
             <span class="count">
-              ${this.selected.size} selected
+              ${this.selected.size} selected (max ${MAX_COMPARE})
             </span>
             <button
               class="btn primary"
@@ -199,21 +271,91 @@ export class CompareView extends LitElement {
             ? html`
                 <div class="grid">
                   <broadside-chart-panel
+                    title="throughput"
+                    .series=${this.seriesFor((r) => r.rps)}
+                    yFormat="req/s"
+                    .fill=${true}
+                  ></broadside-chart-panel>
+                  <broadside-chart-panel
                     title="p95 latency"
                     .series=${this.seriesFor((r) => r.p95)}
                     yFormat="ms"
                     .fill=${true}
                   ></broadside-chart-panel>
                   <broadside-chart-panel
-                    title="requests / second"
-                    .series=${this.seriesFor((r) => r.rps)}
-                    yFormat="req/s"
-                  ></broadside-chart-panel>
-                  <broadside-chart-panel
                     title="error rate"
                     .series=${this.seriesFor((r) => r.error_rate)}
                     yFormat="%"
                     .fill=${true}
+                  ></broadside-chart-panel>
+                  <broadside-chart-panel
+                    title="active virtual users"
+                    .series=${this.multiSeries((b) => activeVusers(b))}
+                    yFormat="count"
+                    .fill=${true}
+                  ></broadside-chart-panel>
+                  <broadside-chart-panel
+                    title="tail latency spread"
+                    .series=${this.multiSeries((b) => tailSpread(b))}
+                    yFormat="count"
+                    .fill=${true}
+                  ></broadside-chart-panel>
+                  <broadside-chart-panel
+                    title="error count"
+                    .series=${this.multiSeries((b) => errorCount(b))}
+                    yFormat="count"
+                    .fill=${true}
+                  ></broadside-chart-panel>
+                  <broadside-chart-panel
+                    title="vusers created vs completed"
+                    .series=${this.data.runs.flatMap(
+                      (run, index) => {
+                        const io = vusersIo(this.runBuckets(run.id));
+                        return io.map((s, j) => ({
+                          name: `${run.id.slice(0, 8)} ${s.name}`,
+                          colorIndex: ((index + j) % 5) + 1,
+                          points: s.points,
+                        }));
+                      },
+                    )}
+                    yFormat="count"
+                  ></broadside-chart-panel>
+                  <broadside-chart-panel
+                    title="latency CDF"
+                    .series=${this.data.runs
+                      .map((run, index) => ({
+                        series: this.cdfRun(run.id)[0],
+                        name: run.id.slice(0, 8),
+                        colorIndex: (index % 5) + 1,
+                      }))
+                      .filter((s) => s.series !== undefined)
+                      .map(({ series, name, colorIndex }) => ({
+                        ...series!,
+                        name,
+                        colorIndex,
+                      }))}
+                    yFormat="%"
+                    kind="step"
+                    xFormat="number"
+                    .fill=${true}
+                  ></broadside-chart-panel>
+                  <broadside-chart-panel
+                    title="latency histogram"
+                    .series=${this.data.runs
+                      .map((run, index) => ({
+                        series: this.histogramRun(run.id)[0],
+                        name: run.id.slice(0, 8),
+                        colorIndex: (index % 5) + 1,
+                      }))
+                      .filter((s) => s.series !== undefined)
+                      .map(({ series, name, colorIndex }) => ({
+                        ...series!,
+                        name,
+                        colorIndex,
+                      }))}
+                    yFormat="%"
+                    kind="bars"
+                    xFormat="number"
                   ></broadside-chart-panel>
                 </div>
 
