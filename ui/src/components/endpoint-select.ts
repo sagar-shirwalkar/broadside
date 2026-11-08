@@ -15,7 +15,7 @@ export class EndpointSelect extends LitElement {
   @property() runId = "";
   /** "" = aggregate row. */
   @property() value: string = ALL_ENDPOINTS;
-  @property() label = "endpoint";
+  @property() label = "Endpoint";
 
   @state() private endpoints: EndpointRow[] = [];
   @state() private loading = false;
@@ -79,6 +79,7 @@ export class EndpointSelect extends LitElement {
     .field {
       display: inline-flex;
       flex-direction: column;
+      align-items: center;
       gap: 4px;
     }
     .label {
@@ -86,7 +87,8 @@ export class EndpointSelect extends LitElement {
       font-size: var(--step--1);
       color: var(--mute);
       letter-spacing: 0.04em;
-      text-transform: lowercase;
+      text-transform: capitalize;
+      text-align: center;
     }
     .select {
       appearance: none;

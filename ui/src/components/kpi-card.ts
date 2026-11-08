@@ -2,21 +2,24 @@ import { LitElement, css, html } from "lit";
 import { customElement, property } from "lit/decorators.js";
 
 /**
- * KPI card: mono label, large tabular value, sparkline of the last N
- * points, and an optional delta (glyph + %) versus a previous run.
+ * KPI card: mono uppercase label, large tabular value, sparkline of the
+ * last N points (with a translucent area beneath, like the charts), and
+ * an optional delta (▲▼ %) versus a previous run. The colored dot is
+ * the small semantic marker — compact, no icon chips.
  */
 @customElement("broadside-kpi-card")
 export class KpiCard extends LitElement {
   @property() label = "";
   @property() value = "";
+  /** One hint per line, top to bottom. */
   @property() hint = "";
   /** Sparkline points, oldest first. */
   @property({ type: Array }) spark: number[] = [];
   /** Signed percent change vs. the previous run; null hides the delta. */
   @property({ type: Number }) delta: number | null = null;
   @property() deltaTone: "good" | "bad" = "good";
-  @property() chip: "peach" | "blush" | "mint" = "mint";
-  @property() icon = "●";
+  /** Dot color. */
+  @property() dot: "mint" | "peach" | "blush" = "mint";
 
   private sparkPath(): string {
     const data = this.spark;
@@ -40,13 +43,21 @@ export class KpiCard extends LitElement {
       .join(" ");
   }
 
+  private sparkArea(): string {
+    const path = this.sparkPath();
+    if (!path) return "";
+    return `${path} L120,32 L0,32 Z`;
+  }
+
   override render() {
     const path = this.sparkPath();
+    const area = this.sparkArea();
     const delta = this.delta;
+    const hintLines = this.hint ? this.hint.split("\n") : [];
     return html`
       <div class="card">
         <div class="top">
-          <span class="chip chip-${this.chip}" aria-hidden="true">${this.icon}</span>
+          <span class="dot dot-${this.dot}" aria-hidden="true"></span>
           <span class="label">${this.label}</span>
           ${delta === null
             ? ""
@@ -57,7 +68,9 @@ export class KpiCard extends LitElement {
         </div>
         <div class="value">${this.value}</div>
         <div class="bottom">
-          <span class="hint">${this.hint}</span>
+          <span class="hint">
+            ${hintLines.map((line) => html`<span class="hint-line">${line}</span>`)}
+          </span>
           ${path
             ? html`<svg
                 class="spark"
@@ -65,6 +78,7 @@ export class KpiCard extends LitElement {
                 preserveAspectRatio="none"
                 aria-hidden="true"
               >
+                <path d=${area} class="spark-fill" />
                 <path d=${path} class="spark-line" />
               </svg>`
             : this.spark.length === 1
@@ -101,31 +115,29 @@ export class KpiCard extends LitElement {
       gap: var(--s-2);
       margin-bottom: var(--s-2);
     }
-    .chip {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      width: 28px;
-      height: 28px;
-      border-radius: 8px;
-      font-size: var(--step--1);
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      display: inline-block;
       flex: none;
     }
-    .chip-peach {
-      background: var(--chip-peach);
+    .dot-mint {
+      background: var(--ok);
+      box-shadow: 0 0 8px var(--ok);
     }
-    .chip-blush {
-      background: var(--chip-blush);
+    .dot-peach {
+      background: var(--warn);
     }
-    .chip-mint {
-      background: var(--chip-mint);
+    .dot-blush {
+      background: var(--bad);
     }
     .label {
       font-size: var(--step--1);
       font-family: var(--font-mono);
       color: var(--text-dim);
-      letter-spacing: 0.04em;
-      text-transform: lowercase;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -159,9 +171,9 @@ export class KpiCard extends LitElement {
       font-size: var(--step--1);
       font-family: var(--font-mono);
       color: var(--mute-2);
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
     }
     .spark {
       width: 120px;
@@ -175,6 +187,11 @@ export class KpiCard extends LitElement {
       stroke-linejoin: round;
       stroke-linecap: round;
       vector-effect: non-scaling-stroke;
+    }
+    .spark-fill {
+      fill: var(--chart-line-1);
+      fill-opacity: 0.13;
+      stroke: none;
     }
     .spark-dot {
       fill: var(--chart-line-1);

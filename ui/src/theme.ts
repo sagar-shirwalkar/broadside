@@ -30,12 +30,8 @@ export function initTheme(): void {
     applyTheme(stored);
     return;
   }
-  // Dark-first: fall back to the OS preference only when there is no
-  // stored choice.
-  const prefersLight = window.matchMedia(
-    "(prefers-color-scheme: light)",
-  ).matches;
-  applyTheme(prefersLight ? "light" : "dark");
+  // Dark is the product default, regardless of the OS preference.
+  applyTheme("dark");
 }
 
 export function toggleTheme(): void {

@@ -6,10 +6,10 @@ import { formatDuration } from "../format.js";
 const POLL_MS = 30_000;
 
 /**
- * Sidebar footer indicator. Polls /api/health every 30s: green dot when
- * ok, amber when the database is down, red when the server is unreachable.
- * A native `title` tooltip carries uptime + flusher stats; dropped
- * points get a warning glyph.
+ * Topbar status indicator. Polls /api/health every 30s: green dot when
+ * connected, red when the server is unreachable. A native `title`
+ * tooltip carries uptime + flusher stats; dropped points get a warning
+ * glyph.
  */
 @customElement("broadside-health-badge")
 export class HealthBadge extends LitElement {
@@ -44,9 +44,7 @@ export class HealthBadge extends LitElement {
   }
 
   private dotClass(): string {
-    if (this.unreachable) return "dot-bad";
-    if (this.health?.status === "degraded") return "dot-wait";
-    return "dot-ok";
+    return this.unreachable ? "dot-bad" : "dot-ok";
   }
 
   private tooltipText(): string {
@@ -65,7 +63,7 @@ export class HealthBadge extends LitElement {
       <span class="badge" role="status" title=${this.tooltipText()}>
         <span class="dot ${this.dotClass()}"></span>
         <span class="text">
-          ${this.unreachable ? "offline" : this.health?.status ?? "…"}
+          ${this.unreachable ? "disconnected" : "connected"}
         </span>
         ${this.health?.flusher.dropped
           ? html`<span class="warn" aria-hidden="true">⚠</span>`
@@ -85,8 +83,8 @@ export class HealthBadge extends LitElement {
       cursor: help;
     }
     .dot {
-      width: 6px;
-      height: 6px;
+      width: 7px;
+      height: 7px;
       border-radius: 50%;
       display: inline-block;
       flex: none;
@@ -94,10 +92,6 @@ export class HealthBadge extends LitElement {
     .dot-ok {
       background: var(--ok);
       box-shadow: 0 0 8px var(--ok);
-    }
-    .dot-wait {
-      background: var(--warn);
-      animation: blink 1.2s infinite;
     }
     .dot-bad {
       background: var(--bad);

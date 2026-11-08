@@ -8,7 +8,7 @@ import type {
   MetricRow,
   RunRow,
 } from "../types.js";
-import { formatDuration, formatMs, formatNumber, formatPercent } from "../format.js";
+import { formatDuration, formatMs, formatNumber, formatPercent, latencyClass } from "../format.js";
 import "../components/chart-panel.js";
 import "../components/skeleton.js";
 
@@ -113,57 +113,83 @@ export class CompareView extends LitElement {
 
     return html`
       <div class="page">
-        <h1>compare runs</h1>
+        <h1>Compare Runs</h1>
 
         <div class="card">
+          <div class="actions">
+            ${this.endpointOptions.length
+              ? html`<label class="field">
+                  <span class="label">Endpoint</span>
+                  <select
+                    class="select"
+                    .value=${this.endpoint}
+                    @change=${(e: Event) => {
+                      this.endpoint = (e.target as HTMLSelectElement).value;
+                      void this.compare();
+                    }}
+                  >
+                    <option value="">all (aggregate)</option>
+                    ${this.endpointOptions.map(
+                      (e) => html`<option value=${e.endpoint}>
+                        ${e.endpoint}
+                      </option>`,
+                    )}
+                  </select>
+                </label>`
+              : ""}
+            <span class="count">
+              ${this.selected.size} selected
+            </span>
+            <button
+              class="btn primary"
+              ?disabled=${this.selected.size < 2 || this.loading}
+              @click=${() => void this.compare()}
+            >
+              ${this.loading ? "loading…" : "compare →"}
+            </button>
+          </div>
+
           <div class="picker">
-            <div class="checks">
-              ${this.runs.map(
-                (run) => html`<label class="check">
-                  <input
-                    type="checkbox"
-                    .checked=${this.selected.has(run.id)}
-                    ?disabled=${!this.selected.has(run.id) &&
-                    this.selected.size >= MAX_COMPARE}
-                    @change=${(e: Event) =>
-                      this.toggle(run.id, (e.target as HTMLInputElement).checked)}
-                  />
-                  <span class="mono">${run.id.slice(0, 8)}</span>
-                  <span class="meta">
-                    ${new Date(run.started_at).toLocaleString()}
-                  </span>
-                </label>`,
-              )}
-            </div>
-            <div class="actions">
-              ${this.endpointOptions.length
-                ? html`<label class="field">
-                    <span class="label">endpoint</span>
-                    <select
-                      class="select"
-                      .value=${this.endpoint}
-                      @change=${(e: Event) => {
-                        this.endpoint = (e.target as HTMLSelectElement).value;
-                        void this.compare();
-                      }}
-                    >
-                      <option value="">all (aggregate)</option>
-                      ${this.endpointOptions.map(
-                        (e) => html`<option value=${e.endpoint}>
-                          ${e.endpoint}
-                        </option>`,
-                      )}
-                    </select>
-                  </label>`
-                : ""}
-              <button
-                class="btn primary"
-                ?disabled=${this.selected.size < 2 || this.loading}
-                @click=${() => void this.compare()}
-              >
-                ${this.loading ? "loading…" : `compare${this.selected.size ? ` (${this.selected.size})` : ""} →`}
-              </button>
-            </div>
+            <table>
+              <thead>
+                <tr>
+                  <th>select</th>
+                  <th>run</th>
+                  <th>started</th>
+                  <th>duration</th>
+                  <th>requests</th>
+                  <th>p95</th>
+                  <th>errors</th>
+                  <th>status</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${this.runs.map(
+                  (run) => {
+                    const checked = this.selected.has(run.id);
+                    return html`<tr class=${checked ? "selected" : ""}>
+                      <td>
+                        <input
+                          type="checkbox"
+                          .checked=${checked}
+                          ?disabled=${!checked && this.selected.size >= MAX_COMPARE}
+                          aria-label="Select run ${run.id}"
+                          @change=${(e: Event) =>
+                            this.toggle(run.id, (e.target as HTMLInputElement).checked)}
+                        />
+                      </td>
+                      <td class="mono">${run.id.slice(0, 8)}</td>
+                      <td class="muted">${new Date(run.started_at).toLocaleString()}</td>
+                      <td>${formatDuration(run.duration_ms)}</td>
+                      <td>${formatNumber(run.total_requests)}</td>
+                      <td class=${latencyClass(run.p95)}>${formatMs(run.p95)}</td>
+                      <td>${formatPercent(run.error_rate)}</td>
+                      <td>${run.status}</td>
+                    </tr>`;
+                  },
+                )}
+              </tbody>
+            </table>
           </div>
         </div>
 
@@ -249,46 +275,19 @@ export class CompareView extends LitElement {
       border-radius: var(--radius-lg);
       padding: var(--s-5);
     }
-    .picker {
-      display: flex;
-      flex-direction: column;
-      gap: var(--s-4);
-    }
-    .checks {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-      gap: var(--s-2);
-      max-height: 240px;
-      overflow: auto;
-    }
-    .check {
-      display: flex;
-      align-items: center;
-      gap: var(--s-2);
-      font-family: var(--font-mono);
-      font-size: var(--step--1);
-      color: var(--text);
-      cursor: pointer;
-      padding: var(--s-1) var(--s-2);
-      border-radius: var(--radius);
-      transition: background var(--dur-fast) var(--ease);
-    }
-    .check:hover {
-      background: var(--surface-2);
-    }
-    .check input {
-      accent-color: var(--accent);
-      cursor: pointer;
-    }
-    .meta {
-      color: var(--mute);
-      font-size: var(--step--1);
-    }
     .actions {
       display: flex;
       align-items: flex-end;
       gap: var(--s-3);
       flex-wrap: wrap;
+      margin-bottom: var(--s-4);
+    }
+    .count {
+      margin-left: auto;
+      font-family: var(--font-mono);
+      font-size: var(--step--1);
+      color: var(--mute);
+      padding-bottom: var(--s-2);
     }
     .field {
       display: inline-flex;
@@ -349,23 +348,16 @@ export class CompareView extends LitElement {
       opacity: 0.4;
       cursor: not-allowed;
     }
-    .grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: var(--s-4);
-    }
-    @media (max-width: 1024px) {
-      .grid {
-        grid-template-columns: 1fr;
-      }
-    }
-    .table-card {
-      padding: var(--s-2) var(--s-5);
-      overflow-x: auto;
+    .picker {
+      max-height: calc(10 * 41px); /* ~10 rows, then scrolls */
+      overflow-y: auto;
+      margin: 0 calc(var(--s-5) * -1);
+      padding: 0 var(--s-5);
     }
     table {
       width: 100%;
-      border-collapse: collapse;
+      border-collapse: separate;
+      border-spacing: 0;
       font-size: var(--step-0);
       font-family: var(--font-mono);
       font-variant-numeric: tabular-nums;
@@ -379,14 +371,46 @@ export class CompareView extends LitElement {
       letter-spacing: 0.08em;
       padding: var(--s-3) var(--s-4);
       border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      background: var(--surface);
     }
     td {
       padding: var(--s-3) var(--s-4);
       border-bottom: 1px solid var(--border);
       color: var(--text-dim);
     }
-    tbody tr:last-child td {
-      border-bottom: none;
+    tbody tr:hover {
+      background: color-mix(in oklab, var(--surface) 50%, transparent);
+    }
+    tr.selected {
+      box-shadow: inset 0 0 0 1px var(--amber);
+    }
+    tr.selected td {
+      border-bottom-color: var(--amber);
+    }
+    td input[type="checkbox"] {
+      accent-color: var(--amber);
+      cursor: pointer;
+      width: 16px;
+      height: 16px;
+    }
+    .muted {
+      color: var(--mute);
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: var(--s-4);
+    }
+    @media (max-width: 1024px) {
+      .grid {
+        grid-template-columns: 1fr;
+      }
+    }
+    .table-card {
+      padding: var(--s-2) var(--s-5);
+      overflow-x: auto;
     }
     .best {
       font-weight: 500;

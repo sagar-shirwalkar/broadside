@@ -81,7 +81,8 @@ export class ChartPanel extends LitElement {
       font-size: var(--step-0);
       font-weight: 500;
       color: var(--text);
-      letter-spacing: 0.01em;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
     }
     .actions {
       display: flex;

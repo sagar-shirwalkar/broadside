@@ -1,6 +1,6 @@
 import { LitElement, css, html } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
-import { apiGet, sseUrl } from "../api.js";
+import { apiGet, RUN_STATUS_EVENT, sseUrl } from "../api.js";
 import type { ChartSeries, RawRow, RunRow } from "../types.js";
 import { formatDuration, formatMs, formatNumber, formatPercent } from "../format.js";
 import { navigate } from "../router.js";
@@ -44,6 +44,13 @@ export class LiveView extends LitElement {
 
   override connectedCallback() {
     super.connectedCallback();
+    window.dispatchEvent(
+      new CustomEvent(RUN_STATUS_EVENT, {
+        detail: "running",
+        bubbles: true,
+        composed: true,
+      }),
+    );
     void this.seed();
     this.connect();
   }
@@ -106,6 +113,13 @@ export class LiveView extends LitElement {
         json_path: null,
         ...summary,
       };
+      window.dispatchEvent(
+        new CustomEvent(RUN_STATUS_EVENT, {
+          detail: summary.status,
+          bubbles: true,
+          composed: true,
+        }),
+      );
       source.close();
     });
 
@@ -151,12 +165,8 @@ export class LiveView extends LitElement {
             <button class="link-btn" @click=${() => navigate("/")}>
               ← runs
             </button>
-            <h1 class="mono">${this.runId.slice(0, 8)}</h1>
-            ${this.finished
-              ? html`<span class="status ${this.finished.status === "failed" ? "status-failed" : "status-done"}">
-                  ${this.finished.status === "failed" ? "✕" : "✓"} ${this.finished.status}
-                </span>`
-              : html`<span class="status status-running"><span class="dot" aria-hidden="true"></span>live</span>`}
+            <h3 class="mono">${this.runId.slice(0, 8)}</h3>
+            ${this.finished ? "" : html`<span class="status status-running"><span class="dot" aria-hidden="true"></span>live</span>`}
           </div>
           <broadside-endpoint-select
             .runId=${this.runId}

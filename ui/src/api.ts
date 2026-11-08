@@ -6,6 +6,10 @@ const TOKEN_KEY = "broadside.token";
  *  login view in response. */
 export const UNAUTHORIZED_EVENT = "broadside:unauthorized";
 
+/** Dispatched by run-detail / live-view so the topbar can show the run's
+ *  status next to its title. */
+export const RUN_STATUS_EVENT = "broadside:run-status";
+
 export class ApiError extends Error {
   status: number;
 

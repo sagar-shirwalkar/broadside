@@ -1,6 +1,6 @@
 import { LitElement, css, html } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
-import { api, apiGet, ApiError } from "../api.js";
+import { api, apiGet, ApiError, RUN_STATUS_EVENT } from "../api.js";
 import type {
   ChartSeries,
   Granularity,
@@ -54,6 +54,13 @@ export class RunDetail extends LitElement {
     try {
       this.run = await apiGet<RunRow>(
         `/api/runs/${encodeURIComponent(this.runId)}`,
+      );
+      window.dispatchEvent(
+        new CustomEvent(RUN_STATUS_EVENT, {
+          detail: this.run.status,
+          bubbles: true,
+          composed: true,
+        }),
       );
       await Promise.all([
         this.loadMetrics(),
@@ -128,7 +135,7 @@ export class RunDetail extends LitElement {
       case "errors":
         return [{ name: "error rate", colorIndex: 3, points: this.points(this.rows, (r) => r.error_rate) }];
       case "volume":
-        return [{ name: "req/min", colorIndex: 4, points: this.points(this.rows, (r) => (r.rps === null ? null : r.rps * 60)) }];
+        return [{ name: "req/s", colorIndex: 4, points: this.points(this.rows, (r) => r.rps) }];
     }
   }
 
@@ -149,7 +156,7 @@ export class RunDetail extends LitElement {
       case "errors":
         return [{ name: "error rate", colorIndex: 3, points: pts((r) => r.error_rate) }];
       case "volume":
-        return [{ name: "req/min", colorIndex: 4, points: pts((r) => (r.rps === null ? null : r.rps * 60)) }];
+        return [{ name: "req/s", colorIndex: 4, points: pts((r) => r.rps) }];
     }
   }
 
@@ -226,6 +233,8 @@ export class RunDetail extends LitElement {
       const z = this.zoomByPanel.get(key) ?? null;
       return z ? [z.from, z.to] : null;
     };
+    const started = new Date(run.started_at);
+    const startedHint = `${started.getFullYear()}-${String(started.getMonth() + 1).padStart(2, "0")}-${String(started.getDate()).padStart(2, "0")}\n${started.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })}`;
 
     return html`
       <div class="page">
@@ -234,12 +243,7 @@ export class RunDetail extends LitElement {
             <button class="link-btn" @click=${() => navigate("/")}>
               ← runs
             </button>
-            <h1 class="mono">${run.id.slice(0, 8)}</h1>
-            ${run.status === "running"
-              ? html`<span class="status status-running pulse"><span class="dot" aria-hidden="true"></span>running</span>`
-              : run.status === "failed"
-                ? html`<span class="status status-failed">✕ failed</span>`
-                : html`<span class="status status-done">✓ completed</span>`}
+            <h3 class="mono">${run.id.slice(0, 8)}</h3>
           </div>
           <div class="header-actions">
             <button class="btn" @click=${() => navigate(`/runs/${run.id}/live`)}>
@@ -253,28 +257,25 @@ export class RunDetail extends LitElement {
 
         <div class="kpis">
           <broadside-kpi-card
-            label="total requests"
+            label="requests"
             .value=${formatNumber(run.total_requests)}
             .delta=${this.delta(run.total_requests, prev?.total_requests ?? null)}
             .deltaTone=${"good"}
-            chip="mint"
-            icon="●"
+            dot="mint"
             .spark=${this.sparkOf((r) => (r.rps === null ? null : r.rps * 60))}
           ></broadside-kpi-card>
           <broadside-kpi-card
             label="duration"
             .value=${formatDuration(run.duration_ms)}
-            chip="peach"
-            icon="◷"
-            hint=${new Date(run.started_at).toLocaleString()}
+            dot="peach"
+            .hint=${startedHint}
           ></broadside-kpi-card>
           <broadside-kpi-card
             label="p50"
             .value=${formatMs(run.p50)}
             .delta=${this.delta(run.p50, prev?.p50 ?? null)}
             .deltaTone=${"good"}
-            chip="mint"
-            icon="◐"
+            dot="mint"
             .spark=${this.sparkOf((r) => r.p50)}
           ></broadside-kpi-card>
           <broadside-kpi-card
@@ -282,8 +283,7 @@ export class RunDetail extends LitElement {
             .value=${formatMs(run.p95)}
             .delta=${this.delta(run.p95, prev?.p95 ?? null)}
             .deltaTone=${"good"}
-            chip="peach"
-            icon="◐"
+            dot="peach"
             .spark=${this.sparkOf((r) => r.p95)}
           ></broadside-kpi-card>
           <broadside-kpi-card
@@ -291,8 +291,7 @@ export class RunDetail extends LitElement {
             .value=${formatMs(run.p99)}
             .delta=${this.delta(run.p99, prev?.p99 ?? null)}
             .deltaTone=${"good"}
-            chip="blush"
-            icon="◐"
+            dot="blush"
             .spark=${this.sparkOf((r) => r.p99)}
           ></broadside-kpi-card>
           <broadside-kpi-card
@@ -300,8 +299,7 @@ export class RunDetail extends LitElement {
             .value=${formatPercent(run.error_rate)}
             .delta=${this.delta(run.error_rate, prev?.error_rate ?? null)}
             .deltaTone=${"bad"}
-            chip="blush"
-            icon="⚠"
+            dot="blush"
             .spark=${this.sparkOf((r) => r.error_rate)}
           ></broadside-kpi-card>
         </div>
@@ -313,7 +311,7 @@ export class RunDetail extends LitElement {
             @endpoint-change=${this.onEndpointChange}
           ></broadside-endpoint-select>
           <label class="field">
-            <span class="label">granularity</span>
+            <span class="label">Granularity</span>
             <select
               class="select"
               .value=${this.granularity}
@@ -366,10 +364,11 @@ export class RunDetail extends LitElement {
             @reset-zoom=${() => this.resetZoom("errors")}
           ></broadside-chart-panel>
           <broadside-chart-panel
-            title="throughput (req/min, rps × 60)"
+            title="throughput"
             .series=${this.seriesFor("volume")}
-            yFormat="count"
-            yLabel="req/min"
+            yFormat="req/s"
+            yLabel="req/s"
+            .fill=${true}
             .zoomed=${zoomDomain("volume") !== null}
             .domain=${zoomDomain("volume")}
             @zoom=${(e: CustomEvent) => void this.onZoom(e, "volume")}
@@ -423,35 +422,11 @@ export class RunDetail extends LitElement {
     .link-btn:hover {
       color: var(--text);
     }
-    h1 {
+    h3 {
       margin: 0;
-      font-size: var(--step-3);
-    }
-    .status {
-      font-family: var(--font-mono);
-      font-size: var(--step--1);
-      display: inline-flex;
-      align-items: center;
-      gap: var(--s-2);
-    }
-    .status .dot {
-      width: 6px;
-      height: 6px;
-      border-radius: 50%;
-      background: var(--ok);
-      box-shadow: 0 0 8px var(--ok);
-    }
-    .status-running {
-      color: var(--ok);
-    }
-    .status-failed {
-      color: var(--bad);
-    }
-    .status-done {
-      color: var(--mute);
-    }
-    .pulse {
-      animation: blink 1.6s infinite;
+      font-size: var(--step-1);
+      font-weight: 500;
+      letter-spacing: 0.01em;
     }
     .header-actions {
       display: flex;
@@ -490,6 +465,7 @@ export class RunDetail extends LitElement {
     .field {
       display: inline-flex;
       flex-direction: column;
+      align-items: center;
       gap: 4px;
     }
     .label {
@@ -497,7 +473,7 @@ export class RunDetail extends LitElement {
       font-size: var(--step--1);
       color: var(--mute);
       letter-spacing: 0.04em;
-      text-transform: lowercase;
+      text-transform: capitalize;
     }
     .select {
       appearance: none;

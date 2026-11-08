@@ -2,8 +2,9 @@ import { LitElement, css, html } from "lit";
 import { customElement, state } from "lit/decorators.js";
 import { keyed } from "lit/directives/keyed.js";
 import { navigate, parseHash, type Route } from "./router.js";
-import { UNAUTHORIZED_EVENT } from "./api.js";
+import { RUN_STATUS_EVENT, UNAUTHORIZED_EVENT } from "./api.js";
 import { currentTheme, toggleTheme } from "./theme.js";
+import type { RunStatus } from "./types.js";
 import "./components/health-badge.js";
 import "./components/trigger-dialog.js";
 import "./views/login.js";
@@ -14,20 +15,22 @@ import "./views/compare-view.js";
 import "./views/not-found.js";
 
 /**
- * App shell: sidebar (brand, mono nav, health indicator, theme glyph)
- * and the main content area, switched by the hash router. Shows the
- * login view when the API answers 401 (API_TOKEN set, no/invalid token
- * stored). Dark-first, krivostr instrument styling.
+ * App shell: slim fixed sidebar (brand, mono nav) + sticky topbar with
+ * the page title, live status, health indicator and theme glyph.
+ * Shows the login view when the API answers 401 (API_TOKEN set, no
+ * valid token stored). Dark-first, krivostr instrument styling.
  */
 @customElement("broadside-app")
 export class App extends LitElement {
   @state() private route: Route = { name: "list" };
+  @state() private runStatus: RunStatus | null = null;
   @state() private needsAuth = false;
   @state() private triggerOpen = false;
   @state() private sidebarOpen = false;
 
   private onHash = () => {
     this.route = parseHash(window.location.hash);
+    this.runStatus = null;
     this.sidebarOpen = false;
   };
 
@@ -35,21 +38,34 @@ export class App extends LitElement {
     this.needsAuth = true;
   };
 
+  private onRunStatus = (event: Event) => {
+    this.runStatus = (event as CustomEvent<RunStatus>).detail;
+  };
+
   override connectedCallback() {
     super.connectedCallback();
     this.onHash();
     window.addEventListener("hashchange", this.onHash);
     window.addEventListener(UNAUTHORIZED_EVENT, this.onUnauthorized);
+    window.addEventListener(RUN_STATUS_EVENT, this.onRunStatus);
   }
 
   override disconnectedCallback() {
     super.disconnectedCallback();
     window.removeEventListener("hashchange", this.onHash);
     window.removeEventListener(UNAUTHORIZED_EVENT, this.onUnauthorized);
+    window.removeEventListener(RUN_STATUS_EVENT, this.onRunStatus);
   }
 
   private navClass(name: Route["name"]): string {
     return this.route.name === name ? "nav-item active" : "nav-item";
+  }
+
+  private topbarTitle(): string {
+    const name = this.route.name;
+    if (name === "compare") return "Compare Artillery Runs";
+    if (name === "detail" || name === "live") return "Artillery Run Status";
+    return "Artillery Runs";
   }
 
   private view() {
@@ -88,12 +104,13 @@ export class App extends LitElement {
     }
 
     const dark = currentTheme() === "dark";
+    const status = this.runStatus;
 
     return html`
       <div class="shell">
         <aside class="sidebar ${this.sidebarOpen ? "open" : ""}">
           <div class="brand">
-            <span class="brand-dot" aria-hidden="true"></span>
+            <img src="/favicon.svg" alt="" class="brand-img" />
             <span class="brand-name">Broadside</span>
           </div>
           <nav>
@@ -118,17 +135,6 @@ export class App extends LitElement {
               <span class="glyph" aria-hidden="true">◈</span> Compare
             </a>
           </nav>
-          <div class="sidebar-foot">
-            <broadside-health-badge></broadside-health-badge>
-            <button
-              class="theme-btn"
-              @click=${toggleTheme}
-              title=${dark ? "switch to light (☼)" : "switch to dark (☽)"}
-              aria-label="Toggle theme"
-            >
-              <span class="glyph" aria-hidden="true">${dark ? "☽" : "☼"}</span>
-            </button>
-          </div>
         </aside>
         ${this.sidebarOpen
           ? html`<div
@@ -145,7 +151,24 @@ export class App extends LitElement {
             >
               <span class="glyph" aria-hidden="true">≡</span>
             </button>
-            <span class="topbar-title">artillery runs</span>
+            <span class="topbar-title">${this.topbarTitle()}</span>
+            ${status === "completed" || status === "running" || status === "failed"
+              ? html`<span class="topbar-status topbar-status-${status}">
+                  ${status === "completed" ? "✓" : status === "failed" ? "✕" : "●"}
+                  ${status}
+                </span>`
+              : ""}
+            <span class="topbar-right">
+              <broadside-health-badge></broadside-health-badge>
+              <button
+                class="theme-btn"
+                @click=${toggleTheme}
+                title=${dark ? "switch to light" : "switch to dark"}
+                aria-label="Toggle theme"
+              >
+                <span class="glyph glyph-large" aria-hidden="true">${dark ? "☽" : "☼"}</span>
+              </button>
+            </span>
           </header>
           <section
             class="content"
@@ -177,60 +200,61 @@ export class App extends LitElement {
       min-height: 100vh;
     }
     .sidebar {
-      width: 216px;
-      flex: none;
+      position: fixed;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      width: 160px;
+      z-index: 10;
       background: var(--ink-2);
       border-right: 1px solid var(--rule);
       display: flex;
       flex-direction: column;
-      position: sticky;
-      top: 0;
-      height: 100vh;
-      z-index: 10;
     }
     .brand {
       display: flex;
       align-items: center;
-      gap: var(--s-3);
-      padding: var(--s-5) var(--s-4) var(--s-4);
+      gap: var(--s-2);
+      padding: var(--s-4) var(--s-3);
+      border-bottom: 1px solid var(--rule);
       font-family: var(--font-mono);
-      font-size: var(--step-0);
-      color: var(--text);
     }
-    .brand-dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: var(--amber);
-      box-shadow: 0 0 12px var(--amber);
+    .brand-img {
+      width: 22px;
+      height: 22px;
       flex: none;
     }
     .brand-name {
+      font-size: var(--step-0);
       font-weight: 500;
+      color: var(--text);
       letter-spacing: 0.02em;
     }
     nav {
       display: flex;
       flex-direction: column;
       gap: var(--s-1);
-      padding: var(--s-2) var(--s-3);
+      padding: var(--s-3);
     }
     .glyph {
       font-family: var(--font-mono);
       font-size: var(--step--1);
     }
+    .glyph-large {
+      font-size: var(--step-1);
+    }
     .nav-item {
       display: flex;
       align-items: center;
-      gap: var(--s-3);
-      padding: 9px var(--s-3);
+      gap: var(--s-2);
+      padding: var(--s-2) var(--s-3);
       border-radius: var(--radius);
       color: var(--text-dim);
       text-decoration: none;
       font-family: var(--font-mono);
       font-size: var(--step--1);
-      transition: all var(--dur-fast) var(--ease);
       border: 1px solid transparent;
+      transition: all var(--dur-fast) var(--ease);
     }
     .nav-item:hover {
       background: var(--surface-2);
@@ -240,13 +264,51 @@ export class App extends LitElement {
       background: var(--text);
       color: var(--bg);
     }
-    .sidebar-foot {
-      margin-top: auto;
+    .main {
+      margin-left: 160px;
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+    }
+    .topbar {
       display: flex;
       align-items: center;
-      justify-content: space-between;
-      padding: var(--s-4);
-      border-top: 1px solid var(--rule);
+      gap: var(--s-4);
+      padding: var(--s-3) var(--s-5);
+      border-bottom: 1px solid var(--rule);
+      position: sticky;
+      top: 0;
+      background: color-mix(in oklab, var(--bg) 85%, transparent);
+      backdrop-filter: blur(12px);
+      z-index: 5;
+      font-family: var(--font-mono);
+    }
+    .topbar-title {
+      font-size: var(--step-1);
+      font-weight: 500;
+      color: var(--text);
+      letter-spacing: 0.01em;
+    }
+    .topbar-status {
+      font-size: var(--step--1);
+    }
+    .topbar-status-completed {
+      color: var(--ok);
+      font-weight: 600;
+    }
+    .topbar-status-running {
+      color: var(--ok);
+    }
+    .topbar-status-failed {
+      color: var(--bad);
+      font-weight: 600;
+    }
+    .topbar-right {
+      margin-left: auto;
+      display: inline-flex;
+      align-items: center;
+      gap: var(--s-3);
     }
     .theme-btn,
     .hamburger {
@@ -255,9 +317,8 @@ export class App extends LitElement {
       border-radius: var(--radius);
       color: var(--mute);
       font-family: var(--font-mono);
-      font-size: var(--step-0);
-      width: 34px;
-      height: 34px;
+      width: 38px;
+      height: 38px;
       display: inline-flex;
       align-items: center;
       justify-content: center;
@@ -268,27 +329,6 @@ export class App extends LitElement {
     .hamburger:hover {
       color: var(--text);
       border-color: var(--amber-dim);
-    }
-    .main {
-      flex: 1;
-      min-width: 0;
-      display: flex;
-      flex-direction: column;
-    }
-    .topbar {
-      display: flex;
-      align-items: center;
-      gap: var(--s-3);
-      padding: var(--s-3) var(--s-5);
-      border-bottom: 1px solid var(--rule);
-      position: sticky;
-      top: 0;
-      background: color-mix(in oklab, var(--bg) 85%, transparent);
-      backdrop-filter: blur(12px);
-      z-index: 5;
-      font-family: var(--font-mono);
-      font-size: var(--step--1);
-      color: var(--mute);
     }
     .hamburger {
       display: none;
@@ -306,14 +346,14 @@ export class App extends LitElement {
     }
     @media (max-width: 768px) {
       .sidebar {
-        position: fixed;
-        left: 0;
-        top: 0;
         transform: translateX(-100%);
         transition: transform 180ms ease;
       }
       .sidebar.open {
         transform: none;
+      }
+      .main {
+        margin-left: 0;
       }
       .hamburger {
         display: inline-flex;

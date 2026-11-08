@@ -45,9 +45,38 @@ export class RunList extends LitElement {
     return this.runs.length === this.limit;
   }
 
-  private changePage(delta: number) {
-    this.offset = Math.max(0, this.offset + delta * this.limit);
+  private goToPage(page: number) {
+    this.offset = Math.max(0, page - 1) * this.limit;
     void this.load();
+  }
+
+  private changePage(delta: number) {
+    this.goToPage(this.page + delta);
+  }
+
+  /**
+   * Numbered page list: a window around the current page, always keeping
+   * the first and last page visible, with "…" for gaps.
+   */
+  private pageNumbers(): Array<number | "…"> {
+    const current = this.page;
+    const lastPage = this.hasNext ? current + 1 : current;
+    if (lastPage <= 7) {
+      return Array.from({ length: lastPage }, (_, i) => i + 1);
+    }
+    const pages = new Set<number>([1, 2, 3, current - 1, current, current + 1, lastPage]);
+    const sorted = [...pages]
+      .filter((p) => p >= 1 && p <= lastPage)
+      .sort((a, b) => a - b);
+    const out: Array<number | "…"> = [];
+    let prev = 0;
+    for (const p of sorted) {
+      if (prev && p - prev > 1) out.push("…");
+      out.push(p);
+      prev = p;
+    }
+    if (prev < lastPage) out.push("…");
+    return out;
   }
 
   private statusGlyph(status: RunStatus): string {
@@ -189,15 +218,25 @@ export class RunList extends LitElement {
             ?disabled=${this.offset === 0 || this.loading}
             @click=${() => this.changePage(-1)}
           >
-            ← prev
+            ← Previous
           </button>
-          <span class="page-info">page ${this.page}</span>
+          ${this.pageNumbers().map((entry) =>
+            entry === "…"
+              ? html`<span class="ellipsis" aria-hidden="true">…</span>`
+              : html`<button
+                  class="page-btn ${entry === this.page ? "current" : ""}"
+                  aria-current=${entry === this.page ? "page" : undefined}
+                  @click=${() => this.goToPage(entry)}
+                >
+                  ${entry}
+                </button>`,
+          )}
           <button
             class="btn"
             ?disabled=${!this.hasNext || this.loading}
             @click=${() => this.changePage(1)}
           >
-            next →
+            Next →
           </button>
         </div>
       </div>
@@ -361,14 +400,37 @@ export class RunList extends LitElement {
       display: flex;
       align-items: center;
       justify-content: center;
-      gap: var(--s-4);
+      gap: var(--s-2);
+      flex-wrap: wrap;
     }
-    .page-info {
+    .page-btn {
+      min-width: 34px;
+      height: 34px;
+      padding: 0 var(--s-2);
+      font-family: var(--font-mono);
+      font-size: var(--step--1);
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text-dim);
+      cursor: pointer;
+      transition: all var(--dur-fast) var(--ease);
+    }
+    .page-btn:hover:not(.current) {
+      border-color: var(--amber-dim);
+      color: var(--text);
+    }
+    .page-btn.current {
+      background: var(--amber);
+      border-color: var(--amber);
+      color: var(--ink);
+      font-weight: 500;
+    }
+    .ellipsis {
       font-family: var(--font-mono);
       font-size: var(--step--1);
       color: var(--mute);
-      min-width: 70px;
-      text-align: center;
+      padding: 0 var(--s-1);
     }
   `;
 }
