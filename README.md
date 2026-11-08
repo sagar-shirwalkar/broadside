@@ -6,7 +6,7 @@ Dashboard for Artillery-generated data.
 
 Broadside is a self-hosted backend and dashboard for [Artillery](https://www.artillery.io/) load-test metrics. Artillery can produce detailed results, but the FOSS toolchain does not include a long-term metrics dashboard. Broadside accepts Artillery-shaped metrics over WebSocket, [Connect/gRPC](https://connectrpc.com/docs/node/getting-started/), or [Kafka](https://kafka.apache.org/), buffers them, and stores them in [TimescaleDB](https://docs.timescale.com/) so runs, RPS, latency percentiles, and error rates can be queried across time.
 
-> **Project status:** backend-first. Ingestion, buffering, storage, continuous aggregates, and the REST API are implemented. The `ui/` directory is a placeholder, and run orchestration (`POST /api/runs` spawning Artillery) is still a TODO.
+> **Project status:** backend-first. Ingestion, buffering, storage, continuous aggregates, the REST API, and Artillery run orchestration are implemented. The `ui/` directory is a placeholder.
 >
 > _Last reviewed: 2026-11-08._
 
@@ -37,10 +37,11 @@ Broadside does **not** include authentication or authorization. Treat the REST, 
 
 [Artillery](https://www.artillery.io/) is an open-source load-testing tool. It can emit per-endpoint metrics such as requests per second, latency percentiles, and error rates, but the FOSS distribution does not ship with a persistent metrics dashboard. Broadside fills that gap with a small service that:
 
-1. Accepts metrics without blocking on database writes.
-2. Stores them in a time-series database built for high-volume append and range queries.
-3. Pre-aggregates them into `1m`, `1h`, and `1d` rollups.
-4. Exposes the data through a simple REST API.
+1. Launches Artillery runs and ingests their reports.
+2. Accepts metrics without blocking on database writes.
+3. Stores them in a time-series database built for high-volume append and range queries.
+4. Pre-aggregates them into `1m`, `1h`, and `1d` rollups.
+5. Exposes the data through a simple REST API.
 
 The dashboard UI is intentionally not implemented yet; the backend is designed so a UI can be added without changing the ingestion contract.
 
@@ -53,6 +54,7 @@ The dashboard UI is intentionally not implemented yet; the backend is designed s
 - [Docker](https://docs.docker.com/get-docker/) and Docker Compose (for TimescaleDB)
 - `psql` on your `PATH` for `pnpm task db:init`
 - Ports `3000` (REST/WebSocket) and `3001` (gRPC) available
+- The [`artillery`](https://www.artillery.io/docs/get-started/install) CLI on your `PATH` if you want to launch runs through `POST /api/runs`
 
 No global `task` or `buf` install is required; both come from dev dependencies.
 
@@ -123,20 +125,62 @@ pnpm build
 
 `pnpm task build` also tries to build the UI. Until `ui/` contains a real app, use `pnpm build` for the server.
 
-### Register a run (optional)
+### Run a load test
 
-Register run metadata before sending metrics:
+Broadside can spawn Artillery, capture its JSON report, and store both aggregate and per-endpoint metrics. The `artillery` binary must be on the server's `PATH`.
+
+| Feature | API | Behavior |
+| --- | --- | --- |
+| Start a run | `POST /api/runs` | Requires `script_path`. Inserts a `running` row, spawns `artillery run`, and returns `201` as soon as the process starts. Returns `500` if Artillery cannot start. |
+| List runs | `GET /api/runs` | 100 most recent runs, newest first. |
+| Check status | `GET /api/runs/:id` | `status` is `running`, `completed`, or `failed`. Completed runs include `duration_ms`, `total_requests`, percentiles, `error_rate`, and `json_path`. |
+| Read metrics | `GET /api/runs/:id/metrics` | Rollups with one row per endpoint per bucket, plus the aggregate row (`endpoint: ""`). |
+| Read raw points | `GET /api/runs/:id/raw` | Unaggregated points, limited to 100,000 rows. |
+| Stop or delete | `DELETE /api/runs/:id` | A running run is sent `SIGTERM` and marked `failed`. A finished run and its metrics are deleted. |
+
+Start a run:
 
 ```bash
-curl -X POST http://localhost:3000/api/runs \
+curl -s -X POST http://localhost:3000/api/runs \
   -H 'content-type: application/json' \
   -d '{
     "id": "run-123",
-    "config": "config:\n  target: https://example.com\n  phases:\n    - duration: 60\n      arrivalRate: 5\n"
+    "script_path": "./load-test.yml",
+    "extra_args": ["--environment", "staging"]
   }'
+# {"id":"run-123","status":"running"}
 ```
 
-Metrics can also be sent without pre-registering a run; the metric queries use `run_id` directly.
+`id` is optional; Broadside generates a UUID when it is omitted. `config` is optional free-form YAML stored in `runs.config_yaml`. `extra_args` is appended to the Artillery command line.
+
+Check status and read the results:
+
+```bash
+curl -s http://localhost:3000/api/runs/run-123
+
+# Per-endpoint 1-minute rollups
+curl -s "http://localhost:3000/api/runs/run-123/metrics?granularity=1m"
+```
+
+Stop a running test or delete a finished one:
+
+```bash
+curl -s -X DELETE http://localhost:3000/api/runs/run-123
+# {"id":"run-123","status":"killed"}   # running
+# {"id":"run-123","status":"deleted"}  # finished
+```
+
+#### What gets ingested
+
+Artillery writes a JSON report to a temporary directory (`--output`), and Broadside processes it when the process exits:
+
+- **Aggregate metrics** (`endpoint: ""`) come from `http.response_time`, `http.requests`, `http.request_rate`, and the `vusers.*` counters.
+- **Per-endpoint metrics** come from the `metrics-by-endpoint` plugin (enabled by default since Artillery v2.0.1). The plugin publishes namespaced keys such as `plugins.metrics-by-endpoint.response_time./api/users` and `plugins.metrics-by-endpoint./api/users.codes.200`.
+- Per-endpoint RPS scales the bucket's measured `http.request_rate` by each endpoint's share of `http.requests`, keeping per-endpoint and aggregate rates on the same basis.
+- Per-endpoint error rate is `errors / (codes + errors)` for that endpoint. The aggregate error rate remains VU-based (`vusers.failed / vusers.created`).
+- Reports generated without the plugin contain only aggregate data; Broadside then emits only the aggregate row.
+
+Completed reports are copied to `ARTILLERY_REPORT_DIR` (default `data/reports`), and the destination is stored in `runs.json_path`. The temporary directory is removed after processing. Metrics can still be sent over WebSocket, gRPC, or Kafka without registering a run; those queries use `run_id` directly.
 
 ### Send metrics over WebSocket
 
@@ -207,7 +251,8 @@ curl -s "http://localhost:3000/api/runs/run-123/raw?from=2026-01-01T00:00:00Z"
 | `GET` | `/api/runs/:id` | Fetch one run, or `404` if it does not exist. |
 | `GET` | `/api/runs/:id/metrics` | Aggregated metrics from the `1m`, `1h`, or `1d` continuous aggregate. |
 | `GET` | `/api/runs/:id/raw` | Raw metric points, limited to 100,000 rows. |
-| `POST` | `/api/runs` | Register run metadata with `{ "id": "...", "config": "..." }`. Does **not** launch Artillery yet. |
+| `POST` | `/api/runs` | Start an Artillery run with `{ "script_path": "...", "id"?, "config"?, "extra_args"? }`. |
+| `DELETE` | `/api/runs/:id` | Kill a running run, or delete a finished run and its metrics. |
 | `GET` | `/api/health` | Health, uptime, and flusher statistics. |
 | `WS` | `/ws` | JSON metric ingestion. |
 
@@ -262,6 +307,12 @@ Artillery / load generator
               REST API /api/*
 ```
 
+### Run orchestration
+
+`POST /api/runs` validates `script_path`, inserts a `running` row, and calls `spawnArtillery` in `src/lib/artillery.ts`. Artillery runs with `--output <temp>/report.json --quiet`; its stderr is captured for failure messages, and the temporary directory is removed after processing.
+
+When the process exits successfully, Broadside parses the report into `MetricPoint[]`, feeds them to the flusher, persists the raw JSON under `ARTILLERY_REPORT_DIR`, and updates the `runs` row to `completed`. A non-zero exit, spawn error, or report-processing error marks the row `failed` and logs the reason. Killing an active run sends `SIGTERM` and marks the row `failed` without ingesting a report. The in-memory `activeRuns` map guards against duplicate concurrent runs and prevents double-settling on `close`/`error` events.
+
 ### Write path
 
 All ingestion paths call the singleton `MetricsFlusher`, which pushes points into a fixed-capacity ring buffer. A background flush drains the buffer every `FLUSH_INTERVAL_MS` or when it reaches `FLUSH_BATCH_SIZE`, then writes one batch to TimescaleDB. If the buffer is full, the oldest points are dropped and counted. If a database insert fails, the batch is re-queued.
@@ -278,16 +329,16 @@ The REST layer reads from the raw `metrics` hypertable for `/raw` and from the `
 | --- | --- | --- |
 | `time` | `TIMESTAMPTZ` | Sample timestamp. |
 | `run_id` | `TEXT` | Run identifier. |
-| `endpoint` | `TEXT` | Endpoint or scenario label. |
+| `endpoint` | `TEXT` | Endpoint or scenario label. Aggregate rows use the empty string; per-endpoint rows use the URL or request name reported by `metrics-by-endpoint`. |
 | `rps` | `DOUBLE PRECISION` | Requests per second. |
 | `p50`, `p95`, `p99` | `DOUBLE PRECISION` | Latency percentiles, in the units supplied by the load generator (typically milliseconds). |
-| `error_rate` | `DOUBLE PRECISION` | Error rate as supplied by the load generator (for example, `0.01` for 1%). |
+| `error_rate` | `DOUBLE PRECISION` | Error rate as supplied by the load generator (for example, `0.01` for 1%). Aggregate rows use failed/created VUs; per-endpoint rows use failed requests / total requests. |
 
 The table is a TimescaleDB hypertable with one-day chunks and an index on `(run_id, time DESC)`.
 
 ### `runs` (metadata)
 
-Stores `id`, `started_at`, `duration_ms`, `total_requests`, `p50`, `p95`, `p99`, `error_rate`, `status`, `config_yaml`, and `json_path`.
+Stores `id`, `started_at`, `duration_ms`, `total_requests`, `p50`, `p95`, `p99`, `error_rate`, `status`, `config_yaml`, and `json_path`. `status` is `running`, `completed`, or `failed`; `json_path` points at the persisted report for orchestrated runs.
 
 ### Continuous aggregates
 
@@ -326,6 +377,7 @@ All configuration is read in `src/config.ts` from environment variables (loaded 
 | `DATABASE_URL` | — (required) | Postgres/TimescaleDB connection string. |
 | `LOG_LEVEL` | `info` | Pino log level (`trace`, `debug`, `info`, `warn`, `error`, `fatal`, `silent`). |
 | `LOG_PRETTY` | `false` | Set to `true` to format logs with `pino-pretty` for local development. |
+| `ARTILLERY_REPORT_DIR` | `data/reports` | Directory where completed Artillery JSON reports are persisted. |
 | `KAFKA_BROKERS` | empty (disabled) | Comma-separated Kafka brokers. Setting this enables the consumer. |
 | `KAFKA_TOPIC` | `artillery.metrics` | Kafka topic to consume. |
 | `RING_CAPACITY` | `16384` | Ring buffer capacity. Rounded up to the next power of two. |
@@ -371,6 +423,7 @@ src/
     routes/             # REST handlers
   lib/
     normalize.ts        # JSON → MetricPoint
+    artillery.ts        # run orchestration + report parsing
     ring-buffer.ts      # fixed-size drop-oldest buffer
     flusher.ts          # batch writes to TimescaleDB
     fplib/              # standalone functional utilities (not wired in)
@@ -398,7 +451,7 @@ The GitHub Actions workflow runs:
 ### Known limitations
 
 - The dashboard UI is not implemented (`ui/` only contains a placeholder).
-- `POST /api/runs` does not spawn or stream an Artillery process yet.
+- Runs are not streamed live; metrics become visible after Artillery exits and the report is processed. The `artillery` binary must be installed on the host separately.
 - `metrics_1h` / `metrics_1d` aggregate already-aggregated percentiles with `avg(...)`; they are approximations, not recomputed percentiles from raw data.
 - The Docker Compose stack publishes the REST/WS port (`3000`) but not the gRPC port (`3001`).
 - There is no authentication; see [Security](#security).
@@ -406,7 +459,7 @@ The GitHub Actions workflow runs:
 ### Planned work
 
 - [ ] Implement the dashboard UI in `ui/`.
-- [ ] Add Artillery run orchestration and live result streaming.
+- [ ] Stream Artillery metrics live instead of waiting for the final report.
 - [ ] Make retention, compression, and refresh policies configurable.
 - [ ] Publish the gRPC port in the Docker Compose stack.
 - [ ] Add authentication or document a recommended reverse-proxy setup.

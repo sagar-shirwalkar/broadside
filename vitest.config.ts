@@ -14,6 +14,7 @@ export default defineConfig({
         "src/db/client.ts",
         "src/lib/ring-buffer.ts",
         "src/lib/normalize.ts",
+        "src/lib/artillery.ts",
         "src/lib/flusher.ts",
         "src/server/app.ts",
         "src/server/grpc.ts",

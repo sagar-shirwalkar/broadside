@@ -31,7 +31,11 @@
 - Every ingestion path must call `metricsFlusher.ingest`; the flusher owns buffering, batching, retry, and drop accounting.
 - Do not block an ingest path on a database write.
 - Kafka is disabled unless `KAFKA_BROKERS` is set; keep the disabled path silent and safe.
-- Log operational failures with a stable prefix such as `[flusher]`, `[kafka]`, or `[server]`.
+- Artillery reports are another ingestion boundary: `parseReportPoints` converts them to `MetricPoint[]`, and `processReport` calls `metricsFlusher.ingest` rather than inserting directly.
+- Accept both `period` and `timestamp` report keys and both `histograms` and `summaries`; older and newer Artillery releases differ. Treat missing plugin data as aggregate-only, not an error.
+- Aggregate rows use `endpoint: ""`. Per-endpoint rows use plugin keys under `plugins.metrics-by-endpoint` (or a custom `metricsNamespace`); do not invent a `custom` report field.
+- Guard run lifecycle handlers with `settled`/`killed` flags so `close` and `error` cannot process a run twice or ingest a partial report.
+- Log operational failures with a stable prefix such as `[flusher]`, `[kafka]`, `[artillery]`, or `[server]`.
 
 ## Configuration
 

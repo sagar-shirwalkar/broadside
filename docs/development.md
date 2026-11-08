@@ -2,7 +2,7 @@
 
 ## First-time setup
 
-Prerequisites: Node.js 22+, pnpm 12.18+, Docker/Compose, and `psql` on `PATH`.
+Prerequisites: Node.js 22+, pnpm 12.18+, Docker/Compose, and `psql` on `PATH`. Install the `artillery` CLI separately if you want to exercise `POST /api/runs` against a real load test.
 
 ```bash
 cp .env.example .env
@@ -52,7 +52,16 @@ pnpm task setup
 - Tests live in `test/` and use Vitest plus Hono's `testClient` from `hono/testing`.
 - `pnpm test` runs the suite; `pnpm test:coverage` enforces 80% statements, branches, functions, and lines.
 - Database and Kafka dependencies are mocked. Unit tests do not require a running TimescaleDB.
-- `src/index.ts`, `src/gen/**`, and `src/lib/fplib/**` are excluded from coverage. `src/index.ts` starts real servers and exits the process.
+- `test/artillery.test.ts` mocks `node:child_process`, `node:fs/promises`, the DB client, the logger, config, and the flusher. Use its fake process helper to drive `close`/`error` events; wrap assertions for async handlers in `vi.waitFor`.
+- `src/index.ts`, `src/gen/**`, and `src/lib/fplib/**` are excluded from coverage. `src/index.ts` starts real servers and exits the process. `src/lib/artillery.ts` is included in the coverage gate.
+
+## Artillery runs
+
+- `POST /api/runs` requires `script_path`; a missing/blank path returns `400`, a path containing `..` returns `400`, and an already-active id returns `409`.
+- The server invokes `artillery run <script> --output <temp>/report.json --quiet` plus any `extra_args`. The report is parsed only after the process exits.
+- Completed reports are copied to `ARTILLERY_REPORT_DIR` (default `data/reports`) and recorded in `runs.json_path`. The directory is gitignored.
+- Per-endpoint points require Artillery's `metrics-by-endpoint` plugin. It is enabled by default since Artillery v2.0.1; older or plugin-less reports still produce an aggregate point.
+- Tests mock the Artillery process; they do not require the CLI. Manual runs against a local target are the quickest way to verify parser changes against a new Artillery version.
 
 ## Logging
 
@@ -88,3 +97,5 @@ pnpm task setup
 - Tests use Vitest and Hono's `testClient`; run `pnpm test` or `pnpm test:coverage`.
 - `pnpm task dev:full` depends on the UI dev server and will not work until `ui/` is implemented.
 - `src/lib/fplib/` is not currently imported by the server; treat it as a standalone utility library.
+- `artillery` is not in `package.json`; `POST /api/runs` fails with `500` if the binary is missing from `PATH`.
+- The orchestrator keeps active runs in memory, so restarting Broadside while a run is in flight leaves that row at `running` and loses the report.

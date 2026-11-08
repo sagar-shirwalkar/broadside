@@ -10,6 +10,10 @@ export const config = {
     pretty: process.env.LOG_PRETTY === "true",
   },
 
+  artillery: {
+    reportDir: process.env.ARTILLERY_REPORT_DIR ?? "data/reports",
+  },
+
   kafka: {
     enabled: Boolean(process.env.KAFKA_BROKERS),
     brokers: process.env.KAFKA_BROKERS?.split(",") ?? [],

@@ -3,10 +3,28 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const h = vi.hoisted(() => {
   const sqlMock = vi.fn() as any;
   sqlMock.identifier = vi.fn((name: string) => ({ __identifier: name }));
-  return { sqlMock };
+
+  return {
+    sqlMock,
+    logger: {
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+      debug: vi.fn(),
+    },
+    spawnArtillery: vi.fn(),
+    killRun: vi.fn(),
+    isRunActive: vi.fn(),
+  };
 });
 
 vi.mock("../src/db/client.js", () => ({ sql: h.sqlMock }));
+vi.mock("../src/logger.js", () => ({ logger: h.logger }));
+vi.mock("../src/lib/artillery.js", () => ({
+  spawnArtillery: h.spawnArtillery,
+  killRun: h.killRun,
+  isRunActive: h.isRunActive,
+}));
 
 import { testClient } from "hono/testing";
 import runs from "../src/server/routes/runs.js";
@@ -18,6 +36,13 @@ describe("runs routes", () => {
     h.sqlMock.mockReset();
     h.sqlMock.mockResolvedValue([]);
     h.sqlMock.identifier.mockClear();
+    h.logger.error.mockClear();
+    h.spawnArtillery.mockReset();
+    h.spawnArtillery.mockResolvedValue(undefined);
+    h.killRun.mockReset();
+    h.killRun.mockReturnValue(true);
+    h.isRunActive.mockReset();
+    h.isRunActive.mockReturnValue(false);
   });
 
   it("lists the most recent runs", async () => {
@@ -120,23 +145,153 @@ describe("runs routes", () => {
     expect(call?.[3]).toBeNull();
   });
 
-  it("registers a run", async () => {
+  it("registers and starts a run", async () => {
+    const config = "config:\n  target: https://example.com\n";
+
     const res = await client.index.$post({
-      json: { id: "run-1", config: "config:\n  target: https://example.com\n" },
+      json: { id: "run-1", script_path: "load.yml", config },
     });
 
     expect(res.status).toBe(201);
     expect(await res.json()).toEqual({ id: "run-1", status: "running" });
+    expect(h.spawnArtillery).toHaveBeenCalledWith({
+      runId: "run-1",
+      scriptPath: "load.yml",
+      extraArgs: undefined,
+    });
 
     const call = h.sqlMock.mock.calls[0];
     expect(call?.[1]).toBe("run-1");
-    expect(call?.[2]).toBe("config:\n  target: https://example.com\n");
+    expect(call?.[2]).toBe(config);
   });
 
   it("registers a run without config", async () => {
-    const res = await client.index.$post({ json: { id: "run-2" } });
+    const res = await client.index.$post({
+      json: { id: "run-2", script_path: "load.yml" },
+    });
 
     expect(res.status).toBe(201);
     expect(h.sqlMock.mock.calls[0]?.[2]).toBeNull();
+  });
+
+  it("generates an id when none is provided", async () => {
+    const res = await client.index.$post({
+      json: { script_path: "load.yml" },
+    });
+
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { id: string; status: string };
+    expect(body.id).toMatch(/^[0-9a-f-]{36}$/);
+    expect(body.status).toBe("running");
+    expect(h.spawnArtillery).toHaveBeenCalledWith(
+      expect.objectContaining({ runId: body.id, scriptPath: "load.yml" }),
+    );
+  });
+
+  it("passes extra args to Artillery", async () => {
+    const res = await client.index.$post({
+      json: {
+        id: "run-1",
+        script_path: "load.yml",
+        extra_args: ["--environment", "staging"],
+      },
+    });
+
+    expect(res.status).toBe(201);
+    expect(h.spawnArtillery).toHaveBeenCalledWith({
+      runId: "run-1",
+      scriptPath: "load.yml",
+      extraArgs: ["--environment", "staging"],
+    });
+  });
+
+  it("requires a script path", async () => {
+    const res = await client.index.$post({ json: { id: "run-1" } });
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "script_path is required" });
+    expect(h.spawnArtillery).not.toHaveBeenCalled();
+    expect(h.sqlMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects a blank script path", async () => {
+    const res = await client.index.$post({
+      json: { id: "run-1", script_path: "   " },
+    });
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "script_path is required" });
+  });
+
+  it("rejects a script path with traversal", async () => {
+    const res = await client.index.$post({
+      json: { id: "run-1", script_path: "../secrets.yml" },
+    });
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "invalid script path" });
+    expect(h.spawnArtillery).not.toHaveBeenCalled();
+  });
+
+  it("returns 409 when the run is already active", async () => {
+    h.isRunActive.mockReturnValue(true);
+
+    const res = await client.index.$post({
+      json: { id: "run-1", script_path: "load.yml" },
+    });
+
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ error: "run already active" });
+    expect(h.spawnArtillery).not.toHaveBeenCalled();
+  });
+
+  it("marks the run failed when Artillery cannot start", async () => {
+    const err = new Error("spawn artillery ENOENT");
+    h.spawnArtillery.mockRejectedValue(err);
+
+    const res = await client.index.$post({
+      json: { id: "run-1", script_path: "load.yml" },
+    });
+
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ error: "failed to start run" });
+
+    const update = h.sqlMock.mock.calls.at(-1);
+    expect(update?.[1]).toBe("run-1");
+    expect(h.logger.error).toHaveBeenCalledWith(
+      { err, runId: "run-1" },
+      "[artillery] failed to start run",
+    );
+  });
+
+  it("kills an active run", async () => {
+    h.isRunActive.mockReturnValue(true);
+
+    const res = await client[":id"].$delete({ param: { id: "run-1" } });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ id: "run-1", status: "killed" });
+    expect(h.killRun).toHaveBeenCalledWith("run-1");
+    expect(h.sqlMock.mock.calls.at(-1)?.[1]).toBe("run-1");
+  });
+
+  it("returns 404 when deleting an unknown run", async () => {
+    h.sqlMock.mockResolvedValueOnce([]);
+
+    const res = await client[":id"].$delete({ param: { id: "missing" } });
+
+    expect(res.status).toBe(404);
+    expect(await res.json()).toEqual({ error: "not found" });
+  });
+
+  it("deletes a completed run and its metrics", async () => {
+    h.sqlMock.mockResolvedValueOnce([{ id: "run-1" }]);
+
+    const res = await client[":id"].$delete({ param: { id: "run-1" } });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ id: "run-1", status: "deleted" });
+    expect(h.killRun).not.toHaveBeenCalled();
+    expect(h.sqlMock).toHaveBeenCalledTimes(3);
   });
 });

@@ -1,5 +1,7 @@
 import { Hono } from "hono";
 import { sql } from "../../db/client.js";
+import { logger } from "../../logger.js";
+import { spawnArtillery, killRun, isRunActive } from "../../lib/artillery.js";
 
 const runs = new Hono();
 
@@ -62,20 +64,73 @@ runs.get("/:id/raw", async (c) => {
   return c.json(rows);
 });
 
-runs.post("/", async (c) => {
-  const body = await c.req.json();
-  const { id, config: configYaml } = body;
+// ─── Trigger a new run ───
 
+runs.post("/", async (c) => {
+  const body = await c.req.json<{
+    id?: string;
+    script_path: string;
+    config?: string;
+    extra_args?: string[];
+  }>();
+
+  const runId = body.id ?? crypto.randomUUID();
+  const scriptPath = body.script_path;
+
+  if (typeof scriptPath !== "string" || scriptPath.trim() === "") {
+    return c.json({ error: "script_path is required" }, 400);
+  }
+
+  // Validate script path (basic: no traversal)
+  if (scriptPath.includes("..")) {
+    return c.json({ error: "invalid script path" }, 400);
+  }
+
+  // Check if already running
+  if (isRunActive(runId)) {
+    return c.json({ error: "run already active" }, 409);
+  }
+
+  // Insert run row
   await sql`
     INSERT INTO runs (id, status, config_yaml)
-    VALUES (${id}, 'running', ${configYaml ?? null})
+    VALUES (${runId}, 'running', ${body.config ?? null})
     ON CONFLICT (id) DO NOTHING
   `;
 
-  // TODO: spawn artillery process, stream output
-  // const proc = spawn("artillery", ["run", yamlPath, "--output", "stream.json"]);
+  try {
+    await spawnArtillery({
+      runId,
+      scriptPath,
+      extraArgs: body.extra_args,
+    });
+  } catch (err) {
+    logger.error({ err, runId }, "[artillery] failed to start run");
+    await sql`UPDATE runs SET status = 'failed' WHERE id = ${runId}`;
+    return c.json({ error: "failed to start run" }, 500);
+  }
 
-  return c.json({ id, status: "running" }, 201);
+  return c.json({ id: runId, status: "running" }, 201);
+});
+
+// ─── Kill a running run ───
+
+runs.delete("/:id", async (c) => {
+  const { id } = c.req.param();
+
+  if (isRunActive(id)) {
+    killRun(id);
+    await sql`UPDATE runs SET status = 'failed' WHERE id = ${id}`;
+    return c.json({ id, status: "killed" });
+  }
+
+  const rows = await sql`SELECT id FROM runs WHERE id = ${id}`;
+  if (rows.length === 0) return c.json({ error: "not found" }, 404);
+
+  // Delete completed run + its metrics
+  await sql`DELETE FROM metrics WHERE run_id = ${id}`;
+  await sql`DELETE FROM runs WHERE id = ${id}`;
+  return c.json({ id, status: "deleted" });
 });
 
 export default runs;
