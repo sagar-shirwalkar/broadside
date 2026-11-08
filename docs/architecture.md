@@ -86,7 +86,7 @@ Run and metric endpoints (`src/server/routes/runs.ts`):
 - `GET /api/runs/compare` — metadata plus one metric series per run for overlay charts. Requires `ids` with 2–10 comma-separated ids, de-duplicated; returns `400` otherwise. Registered before `/:id` so the static path wins.
 - `GET /api/runs/:id` — one run or `404`.
 - `GET /api/runs/:id/endpoints` — distinct non-aggregate endpoints in a run with sample counts, for dashboard filter tabs.
-- `GET /api/runs/:id/metrics` — reads `metrics_1m`, `metrics_1h`, or `metrics_1d`. `granularity` defaults to `1m`; `from`/`to` are optional time filters; `endpoint` filters to one endpoint (or the aggregate row when empty).
+- `GET /api/runs/:id/metrics` — reads `metrics_10s`, `metrics_1m`, `metrics_1h`, or `metrics_1d`. `granularity` defaults to `1m`; `from`/`to` are optional time filters; `endpoint` filters to one endpoint (or the aggregate row when empty). The `10s` rollup exists so sub-minute smoke runs aggregate to more than one point.
 - `GET /api/runs/:id/raw` — reads the raw `metrics` hypertable, limited to 100,000 rows; accepts the same `from`/`to`/`endpoint` filters.
 - `GET /api/runs/:id/live` — Server-Sent Events stream (see below).
 - `POST /api/runs` — creates and starts a run (see [Run orchestration](#run-orchestration)).

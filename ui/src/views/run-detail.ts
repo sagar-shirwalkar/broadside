@@ -160,6 +160,13 @@ export class RunDetail extends LitElement {
     return params.toString();
   }
 
+  /** The rows for the selected endpoint only. Without this filter, the
+   *  aggregate and per-endpoint rows blend into a single muddy series
+   *  and cumulative VUs/error counts double-count. */
+  private viewRows(): MetricRow[] {
+    return this.rows.filter((r) => (r.endpoint ?? "") === this.endpoint);
+  }
+
   private async loadMetrics() {
     this.rows = await apiGet<MetricRow[]>(
       `/api/runs/${encodeURIComponent(this.runId)}/metrics?${this.metricParams()}`,
@@ -250,19 +257,20 @@ export class RunDetail extends LitElement {
       const raw = this.rawByPanel.get(key) ?? [];
       return this.rawSeries(key, raw);
     }
+    const rows = this.viewRows();
     switch (key) {
       case "rps":
-        return [{ name: "req/s", colorIndex: 1, points: this.points(this.rows, (r) => r.rps) }];
+        return [{ name: "req/s", colorIndex: 1, points: this.points(rows, (r) => r.rps) }];
       case "latency":
         return [
-          { name: "p50", colorIndex: 1, points: this.points(this.rows, (r) => r.p50) },
-          { name: "p95", colorIndex: 2, points: this.points(this.rows, (r) => r.p95) },
-          { name: "p99", colorIndex: 3, points: this.points(this.rows, (r) => r.p99) },
+          { name: "p50", colorIndex: 1, points: this.points(rows, (r) => r.p50) },
+          { name: "p95", colorIndex: 2, points: this.points(rows, (r) => r.p95) },
+          { name: "p99", colorIndex: 3, points: this.points(rows, (r) => r.p99) },
         ];
       case "errors":
-        return [{ name: "error rate", colorIndex: 3, points: this.points(this.rows, (r) => r.error_rate) }];
+        return [{ name: "error rate", colorIndex: 3, points: this.points(rows, (r) => r.error_rate) }];
       case "volume":
-        return [{ name: "req/s", colorIndex: 4, points: this.points(this.rows, (r) => r.rps) }];
+        return [{ name: "req/s", colorIndex: 4, points: this.points(rows, (r) => r.rps) }];
     }
   }
 
@@ -294,7 +302,7 @@ export class RunDetail extends LitElement {
   // ─── Derived new-chart series ───
 
   private buckets() {
-    return this.rows.map((r) => toBucket(r, new Date(r.bucket).getTime()));
+    return this.viewRows().map((r) => toBucket(r, new Date(r.bucket).getTime()));
   }
 
   private activeVusers(): ChartPoint[] {
@@ -348,7 +356,7 @@ export class RunDetail extends LitElement {
   }
 
   private sparkOf(pick: (r: MetricRow) => number | null): number[] {
-    return this.points(this.rows, pick).map((p) => p.value);
+    return this.points(this.viewRows(), pick).map((p) => p.value);
   }
 
   private onEndpointChange(event: CustomEvent<{ endpoint: string }>) {
@@ -472,7 +480,7 @@ export class RunDetail extends LitElement {
             .spark=${this.sparkOf((r) => r.p99)}
           ></broadside-kpi-card>
           <broadside-kpi-card
-            label="error rate"
+            label="errors"
             .value=${formatPercent(run.error_rate)}
             .delta=${this.delta(run.error_rate, prev?.error_rate ?? null)}
             .deltaTone=${"bad"}
@@ -692,7 +700,7 @@ export class RunDetail extends LitElement {
     }
     .kpis {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
       gap: var(--s-4);
     }
     .filters {

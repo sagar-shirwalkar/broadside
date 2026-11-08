@@ -86,13 +86,24 @@ export class CompareView extends LitElement {
     }
   }
 
+  /** CAGG rows for one run, scoped to the selected endpoint (aggregate by
+   *  default) so series never double-count. */
+  private rowsFor(runId: string): MetricRow[] {
+    return [...(this.data!.series ?? [])]
+      .filter(
+        (row) =>
+          row.run_id === runId &&
+          (row.endpoint ?? "") === this.endpoint,
+      )
+      .sort((a, b) => a.bucket.localeCompare(b.bucket));
+  }
+
   private seriesFor(
     pick: (r: MetricRow) => number | null,
   ): ChartSeries[] {
     if (!this.data) return [];
     return this.data.runs.map((run, index) => {
-      const points = this.data!.series
-        .filter((row) => row.run_id === run.id)
+      const points = this.rowsFor(run.id)
         .map((row) => ({
           time: new Date(row.bucket).getTime(),
           value: pick(row),
@@ -108,10 +119,9 @@ export class CompareView extends LitElement {
 
   /** Rows for one run in time order, normalized into buckets. */
   private runBuckets(runId: string): Bucket[] {
-    return [...(this.data?.series ?? [])]
-      .filter((row) => row.run_id === runId)
-      .sort((a, b) => a.bucket.localeCompare(b.bucket))
-      .map((row) => toBucket(row, new Date(row.bucket).getTime()));
+    return this.rowsFor(runId).map((row) =>
+      toBucket(row, new Date(row.bucket).getTime()),
+    );
   }
 
   /** One series per comparable run, tagged with run color order. */
