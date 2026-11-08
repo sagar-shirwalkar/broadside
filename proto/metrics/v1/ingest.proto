@@ -1,0 +1,28 @@
+syntax = "proto3";
+
+package metrics.v1;
+
+service Ingest {
+  rpc StreamMetrics(stream MetricBatch) returns (IngestAck);
+  rpc PushMetrics(MetricBatch) returns (IngestAck);
+}
+
+message MetricBatch {
+  string run_id = 1;
+  repeated MetricPoint points = 2;
+}
+
+message MetricPoint {
+  int64 time_ms = 1;
+  string endpoint = 2;
+  double rps = 3;
+  double p50 = 4;
+  double p95 = 5;
+  double p99 = 6;
+  double error_rate = 7;
+}
+
+message IngestAck {
+  int32 accepted = 1;
+  int32 dropped = 2;
+}

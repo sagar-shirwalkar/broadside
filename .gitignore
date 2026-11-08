@@ -1,0 +1,16 @@
+# Node artifacts
+node_modules/
+.pnpm-store/
+
+# Project artifacts
+dist/
+*.log
+.task/
+archive-*/
+
+# AI
+.agents/
+AGENTS.md
+
+# Env vars
+.env

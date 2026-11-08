@@ -1,0 +1,4 @@
+allowBuilds:
+  '@bufbuild/buf': true
+  '@go-task/cli': true
+  esbuild: true

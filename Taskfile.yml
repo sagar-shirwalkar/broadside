@@ -1,0 +1,156 @@
+version: "3"
+
+dotenv: [".env"]
+
+tasks:
+  # ─── Default ───
+  default:
+    desc: "Show available tasks"
+    cmds:
+      - task --list
+
+  # ─── Setup ───
+  setup:
+    desc: "First-time setup (install deps, generate proto, start DB)"
+    cmds:
+      - task: install
+      - task: proto
+      - task: db:up
+      - task: db:wait
+      - task: db:init
+
+  install:
+    desc: "Install dependencies"
+    cmds:
+      - pnpm install
+
+  # ─── Development ───
+  dev:
+    desc: "Run server in watch mode"
+    cmds:
+      - pnpm dev
+    sources:
+      - "src/**/*.ts"
+    watch: true
+
+  dev:full:
+    desc: "Run server + UI in watch mode (parallel)"
+    deps: ["dev", "ui:dev"]
+    cmds: []
+
+  # ─── Build ───
+  build:
+    desc: "Build server + UI (parallel)"
+    deps: ["build:server", "build:ui"]
+    cmds: []
+
+  build:server:
+    internal: true
+    deps: ["proto"]
+    cmds:
+      - pnpm build
+    sources:
+      - "src/**/*.ts"
+      - "proto/**/*.proto"
+      - "tsconfig.json"
+    generates:
+      - "dist/**"
+
+  build:ui:
+    internal: true
+    cmds:
+      - cd ui && pnpm build
+    sources:
+      - "ui/src/**"
+      - "ui/vite.config.ts"
+    generates:
+      - "ui/dist/**"
+
+  # ─── Proto ───
+  proto:
+    desc: "Generate TypeScript from .proto files"
+    cmds:
+      - buf generate
+    sources:
+      - "proto/**/*.proto"
+      - "buf.gen.yaml"
+    generates:
+      - "src/gen/**"
+
+  proto:check:
+    desc: "Verify generated proto is up to date (CI gate)"
+    cmds:
+      - buf generate
+      - |
+        if ! git diff --exit-code -- src/gen/ 2>/dev/null; then
+          echo "ERROR: src/gen/ is stale. Run 'task proto' and commit."
+          exit 1
+        fi
+      - echo "✓ proto in sync"
+
+  # ─── Database ───
+  db:up:
+    desc: "Start TimescaleDB in Docker"
+    cmds:
+      - docker compose up db -d
+
+  db:down:
+    desc: "Stop TimescaleDB"
+    cmds:
+      - docker compose down db
+
+  db:wait:
+    internal: true
+    cmds:
+      - |
+        until docker compose exec db pg_isready -U postgres -q 2>/dev/null; do
+          sleep 1
+        done
+
+  db:init:
+    desc: "Apply schema to database"
+    cmds:
+      - psql $DATABASE_URL -f src/db/schema.sql
+
+  db:logs:
+    desc: "Tail database logs"
+    cmds:
+      - docker compose logs -f db
+
+  # ─── UI (placeholder) ───
+  ui:dev:
+    desc: "Run UI dev server"
+    cmds:
+      - cd ui && pnpm dev
+
+  ui:build:
+    desc: "Build UI for production"
+    cmds:
+      - cd ui && pnpm build
+
+  # ─── Docker ───
+  docker:build:
+    desc: "Build production Docker image"
+    cmds:
+      - docker build -t artilleryviz:latest .
+
+  docker:up:
+    desc: "Run full stack in Docker"
+    cmds:
+      - docker compose up -d
+
+  docker:down:
+    desc: "Stop full stack"
+    cmds:
+      - docker compose down
+
+  # ─── Utilities ───
+  clean:
+    desc: "Remove build artifacts"
+    cmds:
+      - rm -rf dist ui/dist .task
+
+  lint:
+    desc: "Type-check (no emit)"
+    cmds:
+      - pnpm exec tsc --noEmit
