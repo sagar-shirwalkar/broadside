@@ -69,24 +69,40 @@ export class LineChart extends LitElement {
     return Math.max(0, this.height - MARGIN.top - MARGIN.bottom);
   }
 
+  /** Spread-safe min/max: raw zooms can carry 100k points, where
+   *  `Math.min(...values)` overflows the call stack. */
+  private bounds(pick: (p: ChartPoint) => number): [number, number] | null {
+    let min = Infinity;
+    let max = -Infinity;
+    let seen = false;
+    for (const s of this.series) {
+      for (const p of s.points) {
+        const v = pick(p);
+        if (v < min) min = v;
+        if (v > max) max = v;
+        seen = true;
+      }
+    }
+    return seen ? [min, max] : null;
+  }
+
   private xDomain(): [Date, Date] {
     if (this.domain) {
       return [new Date(this.domain[0]), new Date(this.domain[1])];
     }
-    const times = this.series.flatMap((s) => s.points.map((p) => p.time));
-    if (times.length === 0) {
+    const times = this.bounds((p) => p.time);
+    if (!times) {
       const now = Date.now();
       return [new Date(now - 3_600_000), new Date(now)];
     }
-    const min = Math.min(...times);
-    const max = Math.max(...times);
+    const [min, max] = times;
     return [new Date(min), new Date(max === min ? max + 1 : max)];
   }
 
   private yDomain(): [number, number] {
-    const values = this.series.flatMap((s) => s.points.map((p) => p.value));
-    if (values.length === 0) return [0, 1];
-    const max = Math.max(...values);
+    const values = this.bounds((p) => p.value);
+    if (!values) return [0, 1];
+    const max = values[1];
     return [0, max * 1.1 || 1];
   }
 

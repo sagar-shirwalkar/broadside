@@ -9,6 +9,7 @@
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
     "experimentalDecorators": true,
+    "useDefineForClassFields": false,
     "declaration": false,
     "types": ["vite/client"]
   },

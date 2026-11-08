@@ -137,12 +137,11 @@ Only `1m`, `1h`, and `1d` are valid granularities. The view name is selected wit
 | `src/db/schema.sql` | Hypertable, runs table, continuous aggregates, policies. |
 | `proto/metrics/v1/ingest.proto` | gRPC/Connect service and message definitions. |
 | `src/gen/**` | Generated protobuf TypeScript; do not edit by hand. |
-| `ui/src/**` | Dashboard views/components (see the `ui/` README and `ui/src/`). |
-| `src/lib/fplib/` | Standalone pure-TypeScript functional utilities; not imported by the server. |
+| `ui/src/**` | Dashboard views/components (see `ui/src/`). |
 
 ## Known gaps and rough edges
 
-- The dashboard has no automated tests; `build:ui` type-checks and bundles it, but interaction correctness is manual.
+- The dashboard is covered by Vitest unit tests (router, formatters) and 9 Playwright E2E scenarios with a stubbed API; chart pixel output is not asserted.
 - `ui/dist` must exist and be built for the dashboard to be served; an unbuilt checkout returns 404s for non-API paths (and JSON 404s for `/api/*`).
 - Orchestrated runs are not streamed live: their metrics appear only after Artillery exits and the final report is processed. `GET /api/runs/:id/live` streams points for WS/gRPC/Kafka-fed runs once the flusher writes them. A crash before report processing loses an orchestrated run's metrics.
 - The `runs` list endpoint is offset-paginated; deep offsets on a large `runs` table will get slower as the table grows.

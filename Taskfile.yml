@@ -139,6 +139,16 @@ tasks:
     cmds:
       - cd ui && pnpm build
 
+  ui:test:
+    desc: "Run UI unit tests (Vitest)"
+    cmds:
+      - cd ui && pnpm test
+
+  ui:test:e2e:
+    desc: "Run UI end-to-end tests (Playwright, API stubbed)"
+    cmds:
+      - cd ui && pnpm test:e2e
+
   # ─── Docker ───
   docker:build:
     desc: "Build production Docker image"

@@ -55,7 +55,7 @@ pnpm task setup
 - `test/artillery.test.ts` mocks `node:child_process`, `node:fs/promises`, the DB client, the logger, config, and the flusher. Use its fake process helper to drive `close`/`error` events; wrap assertions for async handlers in `vi.waitFor`.
 - `test/runs.test.ts` exercises the REST surface through `testClient` with a mocked `sql` tagged-template. Because the mock records template parts and values separately, assertions on pagination or `ANY (${ids})` inspect the value indexes (`call[1]`, `call[2]`, …) rather than the SQL text.
 - `src/server/routes/runs.ts` tests the SSE stream through the router itself (`runs.request(...)`) so `streamSSE` writes real `text/event-stream` chunks; assert on the response body text and on the recorded `sql` calls.
-- `src/index.ts`, `src/gen/**`, and `src/lib/fplib/**` are excluded from coverage. `src/index.ts` starts real servers and exits the process. `src/lib/artillery.ts` is included in the coverage gate.
+- `src/index.ts` and `src/gen/**` are excluded from coverage. `src/index.ts` starts real servers and exits the process. `src/lib/artillery.ts` is included in the coverage gate.
 
 ## Artillery runs
 
@@ -103,10 +103,11 @@ pnpm task setup
 ## Dashboard (`ui/`)
 
 - `ui/` is its own package (own `package.json`, lockfile, and `pnpm-workspace.yaml` for the esbuild approval). `cd ui && pnpm install` sets it up; `pnpm task ui:dev` / `ui:build` wrap the Vite scripts.
+- UI tests: `pnpm task ui:test` (Vitest, pure-logic: router parsing, formatters) and `pnpm task ui:test:e2e` (Playwright, 9 scenarios with the API stubbed at the network layer, so no database is needed). E2E needs browsers: `cd ui && pnpm exec playwright install chromium`. CI runs both.
 - The UI type-checks as part of its build (`tsc --noEmit && vite build`). The root `tsc` does not cover `ui/` — run `cd ui && pnpm typecheck` to check it alone.
 - Routing is hash-based (`#/renders`), so no static-host rewrite rules are needed; the API server's SPA fallback serves `index.html` for unknown non-API GETs.
 - Charts are hand-rolled SVG with `d3-scale`/`d3-shape`; colors come from CSS custom properties (`--chart-line-*`) so the dark/light toggle re-colors rendered paths without re-rendering.
-- API calls go through `apiGet`/`api` in `ui/src/api.ts`, which centralizes the Bearer token and 401 handling. The dashboard has no automated tests.
+- API calls go through `apiGet`/`api` in `ui/src/api.ts`, which centralizes the Bearer token and 401 handling. UI tests: `pnpm task ui:test` (Vitest) and `pnpm task ui:test:e2e` (Playwright, API stubbed — see the Testing section).
 
 ## Adding features
 
@@ -121,6 +122,5 @@ pnpm task setup
 - The project is ESM with `module: NodeNext`; relative imports in TypeScript must use the `.js` extension (for example `./config.js`).
 - Tests use Vitest and Hono's `testClient`; run `pnpm test` or `pnpm test:coverage`.
 - `pnpm task dev:full` runs the server and Vite dev server together; the UI at `:5173` proxies `/api` and `/ws` to `:3000`.
-- `src/lib/fplib/` is not currently imported by the server; treat it as a standalone utility library.
 - `artillery` is not in `package.json`; `POST /api/runs` fails with `500` if the binary is missing from `PATH`.
 - The orchestrator keeps active runs in memory, so restarting Broadside while a run is in flight leaves that row at `running` and loses the report.

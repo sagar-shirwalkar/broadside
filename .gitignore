@@ -15,5 +15,9 @@ archive-*/
 .agents/
 AGENTS.md
 
+# UI test output
+ui/test-results/
+ui/playwright-report/
+
 # Env vars
 .env

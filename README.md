@@ -467,6 +467,8 @@ Set `LOG_PRETTY=true` for human-readable local logs. The production default is J
 | `pnpm task dev` | Run the server in watch mode. |
 | `pnpm task ui:dev` | Run the dashboard dev server (Vite, `:5173`). |
 | `pnpm task ui:build` | Build the dashboard to `ui/dist`. |
+| `pnpm task ui:test` | Run the UI unit tests (Vitest). |
+| `pnpm task ui:test:e2e` | Run the UI end-to-end tests (Playwright, API stubbed). |
 | `pnpm task lint` | Type-check with `tsc --noEmit`. |
 | `pnpm test` | Run the Vitest suite once. |
 | `pnpm test:coverage` | Run tests with the 80% coverage gate. |
@@ -498,7 +500,6 @@ src/
     artillery.ts        # run orchestration + report parsing
     ring-buffer.ts      # fixed-size drop-oldest buffer
     flusher.ts          # batch writes to TimescaleDB
-    fplib/              # standalone functional utilities (not wired in)
   db/
     client.ts           # postgres.js client
     schema.sql          # hypertable, runs, continuous aggregates
@@ -525,7 +526,7 @@ The GitHub Actions workflow runs:
 
 ### Known limitations
 
-- The dashboard has no automated tests; it is type-checked and built in CI, but interaction correctness is manual.
+- The dashboard is covered by Vitest unit tests and 9 Playwright E2E scenarios (API stubbed at the network layer); chart rendering itself is not pixel-asserted.
 - `GET /api/runs/:id/live` streams points once they are written by the flusher. Orchestrated Artillery runs still produce their report at process exit, so their live stream stays quiet until the run finishes. The `artillery` binary must be installed on the host separately.
 - `metrics_1h` / `metrics_1d` aggregate already-aggregated percentiles with `avg(...)`; they are approximations, not recomputed percentiles from raw data.
 - The Docker Compose stack publishes the REST/WS port (`3000`) but not the gRPC port (`3001`).
@@ -533,7 +534,7 @@ The GitHub Actions workflow runs:
 
 ### Planned work
 
-- [ ] Harden the dashboard: automated component tests, windowing for very long metric series.
+- [ ] Harden the dashboard: automated chart rendering tests, windowing for very long metric series.
 - [ ] Stream Artillery metrics live instead of waiting for the final report. (`GET /api/runs/:id/live` already streams points as the flusher writes them; orchestrated reports still arrive at process exit.)
 - [ ] Make retention, compression, and refresh policies configurable.
 - [ ] Publish the gRPC port in the Docker Compose stack.

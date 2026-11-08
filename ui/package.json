@@ -7,7 +7,9 @@
     "dev": "vite",
     "build": "tsc -p tsconfig.json --noEmit && vite build",
     "preview": "vite preview",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "@shoelace-style/shoelace": "^2.20.1",
@@ -16,9 +18,11 @@
     "lit": "3.3.3"
   },
   "devDependencies": {
+    "@playwright/test": "^1.65.0",
     "@types/d3-scale": "^4.0.9",
     "@types/d3-shape": "^3.1.0",
-    "typescript": "^5.9.3",
-    "vite": "^7.1.7"
+    "typescript": "^7.0.2",
+    "vite": "^7.1.7",
+    "vitest": "^5.1.0"
   }
 }

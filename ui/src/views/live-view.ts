@@ -24,6 +24,16 @@ interface LivePoint {
 
 const BUFFER = 600; // 10 min at 1 Hz
 
+/** The server is the only writer of this stream, but a malformed event must
+ *  not kill the listener (and with it, the whole live feed). */
+function parseSsePayload<T>(text: string): T | null {
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    return null;
+  }
+}
+
 @customElement("broadside-live-view")
 export class LiveView extends LitElement {
   @property() runId = "";
@@ -76,15 +86,14 @@ export class LiveView extends LitElement {
     this.source = source;
 
     source.addEventListener("metric", (event) => {
-      const data = JSON.parse((event as MessageEvent).data) as LivePoint & {
-        rps: number | null;
-      };
+      const data = parseSsePayload<LivePoint>((event as MessageEvent).data);
+      if (!data) return;
       this.points = [...this.points, data].slice(-BUFFER);
       this.reconnecting = false;
     });
 
     source.addEventListener("run", (event) => {
-      const summary = JSON.parse((event as MessageEvent).data) as {
+      const summary = parseSsePayload<{
         status: RunRow["status"];
         duration_ms: number | null;
         total_requests: number | null;
@@ -92,7 +101,8 @@ export class LiveView extends LitElement {
         p95: number | null;
         p99: number | null;
         error_rate: number | null;
-      };
+      }>((event as MessageEvent).data);
+      if (!summary) return;
       this.finished = {
         id: this.runId,
         started_at: "",

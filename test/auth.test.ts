@@ -84,4 +84,34 @@ describe("createAuthMiddleware", () => {
 
     expect(res.status).toBe(401);
   });
+
+  it("rate-limits repeated failures and recovers after a success", async () => {
+    const app = appWith("secret");
+
+    for (let i = 0; i < 30; i += 1) {
+      const res = await app.request("/protected", {
+        headers: { Authorization: "Bearer wrong" },
+      });
+      expect(res.status).toBe(401);
+    }
+
+    const limited = await app.request("/protected", {
+      headers: { Authorization: "Bearer wrong" },
+    });
+    expect(limited.status).toBe(429);
+    expect(await limited.json()).toEqual({ error: "too many attempts" });
+
+    const otherClient = await app.request("/protected", {
+      headers: {
+        Authorization: "Bearer wrong",
+        "x-forwarded-for": "203.0.113.7",
+      },
+    });
+    expect(otherClient.status).toBe(401);
+
+    const success = await app.request("/protected", {
+      headers: { Authorization: "Bearer secret" },
+    });
+    expect(success.status).toBe(200);
+  });
 });

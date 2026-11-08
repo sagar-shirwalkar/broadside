@@ -2,7 +2,6 @@ import { LitElement, css, html } from "lit";
 import { customElement, state } from "lit/decorators.js";
 import "@shoelace-style/shoelace/dist/components/tooltip/tooltip.js";
 import "@shoelace-style/shoelace/dist/components/icon/icon.js";
-import { apiGet } from "../api.js";
 import type { HealthResponse } from "../types.js";
 import { formatDuration } from "../format.js";
 
@@ -32,8 +31,13 @@ export class HealthBadge extends LitElement {
   }
 
   private async poll() {
+    // /api/health is public and must never toast — poll with plain fetch.
     try {
-      this.health = await apiGet<HealthResponse>("/api/health");
+      const res = await fetch("/api/health");
+      if (!res.ok) throw new Error(`health ${res.status}`);
+      const body = (await res.json()) as HealthResponse;
+      if (!body.flusher) throw new Error("malformed health payload");
+      this.health = body;
       this.unreachable = false;
     } catch {
       this.unreachable = true;

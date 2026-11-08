@@ -26,8 +26,12 @@ export class KpiCard extends LitElement {
     if (data.length < 2) return "";
     const w = 120;
     const h = 32;
-    const min = Math.min(...data);
-    const max = Math.max(...data);
+    let min = Infinity;
+    let max = -Infinity;
+    for (const v of data) {
+      if (v < min) min = v;
+      if (v > max) max = v;
+    }
     const range = max - min || 1;
     const step = w / (data.length - 1);
     return data

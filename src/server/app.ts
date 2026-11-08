@@ -44,6 +44,36 @@ export function createApp(): Hono<AppEnv> {
     }),
   );
 
+  // Security headers on every response, including static assets served
+  // below. Shoelace/Lit inject inline styles, so style-src needs
+  // 'unsafe-inline'; scripts stay 'self'-only.
+  app.use(async (c, next) => {
+    c.header(
+      "Content-Security-Policy",
+      [
+        "default-src 'self'",
+        "script-src 'self'",
+        "style-src 'self' 'unsafe-inline'",
+        "img-src 'self' data:",
+        "font-src 'self'",
+        "connect-src 'self'",
+        "object-src 'none'",
+        "base-uri 'self'",
+        "frame-ancestors 'none'",
+      ].join("; "),
+    );
+    c.header("X-Content-Type-Options", "nosniff");
+    c.header("X-Frame-Options", "DENY");
+    c.header("Referrer-Policy", "strict-origin-when-cross-origin");
+    if (c.req.url.startsWith("https://")) {
+      c.header(
+        "Strict-Transport-Security",
+        "max-age=31536000; includeSubDomains",
+      );
+    }
+    await next();
+  });
+
   // CORS before authentication: preflight (OPTIONS) requests never carry
   // credentials, and the CORS middleware answers them itself.
   app.use(
@@ -83,8 +113,13 @@ export function createApp(): Hono<AppEnv> {
   app.route("/api/health", health);
 
   // Dashboard (built into config.ui.distDir). Missing files fall through to
-  // the notFound handler below, which serves the SPA entry point.
+  // the notFound handler below, which serves the SPA entry point. The entry
+  // point is read once at startup; rebuild the app (or restart) to pick up a
+  // new bundle.
   const uiIndex = join(config.ui.distDir, "index.html");
+  const uiIndexHtml = existsSync(uiIndex)
+    ? readFileSync(uiIndex, "utf-8")
+    : null;
   app.use(serveStatic({ root: config.ui.distDir }));
 
   app.notFound((c) => {
@@ -95,11 +130,11 @@ export function createApp(): Hono<AppEnv> {
       path.startsWith("/api/") ||
       path === "/ws" ||
       assetLike ||
-      !existsSync(uiIndex)
+      uiIndexHtml === null
     ) {
       return c.json({ error: "not found" }, 404);
     }
-    return c.html(readFileSync(uiIndex, "utf-8"));
+    return c.html(uiIndexHtml);
   });
 
   return app;

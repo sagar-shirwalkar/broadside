@@ -233,6 +233,32 @@ describe("createApp", () => {
     expect(await res.json()).toEqual({ error: "not found" });
   });
 
+  it("sets security headers on API and static responses", async () => {
+    const app = createApp();
+
+    const api = await app.request("/api/health");
+    expect(api.headers.get("content-security-policy")).toContain(
+      "default-src 'self'",
+    );
+    expect(api.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(api.headers.get("x-frame-options")).toBe("DENY");
+    expect(api.headers.get("referrer-policy")).toBe(
+      "strict-origin-when-cross-origin",
+    );
+
+    const page = await app.request("/");
+    expect(page.headers.get("content-security-policy")).toContain(
+      "default-src 'self'",
+    );
+  });
+
+  it("only sets HSTS for https requests", async () => {
+    const app = createApp();
+
+    const http = await app.request("/api/health");
+    expect(http.headers.get("strict-transport-security")).toBeNull();
+  });
+
   it("logs unhandled route errors", async () => {
     const app = createApp();
     app.get("/boom", () => {
