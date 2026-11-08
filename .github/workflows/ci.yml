@@ -33,8 +33,11 @@ jobs:
       - name: Type-check
         run: pnpm task lint
 
+      - name: Test
+        run: pnpm test:coverage
+
       - name: Build
-        run: pnpm task build:server
+        run: pnpm build
 
   docker:
     runs-on: ubuntu-latest

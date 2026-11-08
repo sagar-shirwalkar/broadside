@@ -4,6 +4,7 @@ node_modules/
 
 # Project artifacts
 dist/
+coverage/
 *.log
 .task/
 archive-*/

@@ -25,7 +25,11 @@ runs.get("/:id", async (c) => {
 
 runs.get("/:id/metrics", async (c) => {
   const { id } = c.req.param();
-  const granularity = (c.req.query("granularity") ?? "1m") as "1m" | "1h" | "1d";
+  const granularity = c.req.query("granularity") ?? "1m";
+  if (granularity !== "1m" && granularity !== "1h" && granularity !== "1d") {
+    return c.json({ error: "invalid granularity" }, 400);
+  }
+
   const from = c.req.query("from") ? new Date(c.req.query("from")!) : null;
   const to = c.req.query("to") ? new Date(c.req.query("to")!) : null;
 
@@ -34,8 +38,8 @@ runs.get("/:id/metrics", async (c) => {
     SELECT bucket, endpoint, rps, p50, p95, p99, error_rate, samples
     FROM ${sql.identifier(view)}
     WHERE run_id = ${id}
-      AND (from IS NULL OR bucket >= from)
-      AND (to IS NULL OR bucket <= to)
+      AND bucket >= COALESCE(${from}::timestamptz, '-infinity')
+      AND bucket <= COALESCE(${to}::timestamptz, 'infinity')
     ORDER BY bucket
   `;
   return c.json(rows);
@@ -50,8 +54,8 @@ runs.get("/:id/raw", async (c) => {
     SELECT time, endpoint, rps, p50, p95, p99, error_rate
     FROM metrics
     WHERE run_id = ${id}
-      AND (from IS NULL OR time >= from)
-      AND (to IS NULL OR time <= to)
+      AND time >= COALESCE(${from}::timestamptz, '-infinity')
+      AND time <= COALESCE(${to}::timestamptz, 'infinity')
     ORDER BY time
     LIMIT 100000
   `;

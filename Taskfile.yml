@@ -66,6 +66,17 @@ tasks:
     generates:
       - "ui/dist/**"
 
+  # ─── Testing ───
+  test:
+    desc: "Run the test suite"
+    cmds:
+      - pnpm test
+
+  test:coverage:
+    desc: "Run tests with coverage thresholds"
+    cmds:
+      - pnpm test:coverage
+
   # ─── Proto ───
   proto:
     desc: "Generate TypeScript from .proto files"
