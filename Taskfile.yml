@@ -29,9 +29,9 @@ tasks:
     desc: "Run server in watch mode"
     cmds:
       - pnpm dev
-    sources:
-      - "src/**/*.ts"
-    watch: true
+    # No `sources`/`watch` here on purpose: go-task's up-to-date check
+    # would skip starting the server when sources are unchanged.
+    # `tsx watch` (inside `pnpm dev`) handles reloads.
 
   dev:full:
     desc: "Run server + UI in watch mode (parallel)"

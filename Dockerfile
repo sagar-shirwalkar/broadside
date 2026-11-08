@@ -3,8 +3,9 @@ RUN corepack enable
 
 WORKDIR /app
 
-# Install deps (server + UI)
-COPY package.json pnpm-lock.yaml ./
+# Install deps (server + UI). pnpm-workspace.yaml carries the build-script
+# approvals (esbuild/buf/task); without it the install fails.
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile --prod=false
 COPY ui/package.json ui/pnpm-lock.yaml ui/pnpm-workspace.yaml ./ui/
 RUN cd ui && pnpm install --frozen-lockfile

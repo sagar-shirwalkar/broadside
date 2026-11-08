@@ -1,10 +1,9 @@
 import { LitElement, css, html } from "lit";
 import { customElement, property } from "lit/decorators.js";
-import "@shoelace-style/shoelace/dist/components/dialog/dialog.js";
-import "@shoelace-style/shoelace/dist/components/button/button.js";
 
 /**
- * Shared confirmation dialog for kill/delete. The caller owns the API call;
+ * Shared confirmation "sheet" for kill/delete. Krivostr overlay pattern:
+ * fixed dim + blur backdrop, surface sheet. The caller owns the API call;
  * this only collects the "confirm" event.
  */
 @customElement("broadside-confirm-dialog")
@@ -15,63 +14,121 @@ export class ConfirmDialog extends LitElement {
   @property() confirmLabel = "Confirm";
   @property({ type: Boolean }) busy = false;
 
-  override updated(changed: Map<string, unknown>) {
-    if (!changed.has("open")) return;
-    const dialog = this.renderRoot.querySelector("sl-dialog");
-    if (!dialog) return;
-    if (this.open) void dialog.show();
-    else dialog.hide();
-  }
-
   private onConfirm() {
     this.dispatchEvent(
       new CustomEvent("confirm", { bubbles: true, composed: true }),
     );
   }
 
+  private onCancel() {
+    this.dispatchEvent(
+      new CustomEvent("close", { bubbles: true, composed: true }),
+    );
+  }
+
+  private onBackdrop(event: Event) {
+    if (event.target === event.currentTarget) this.onCancel();
+  }
+
   override render() {
+    if (!this.open) return "";
     return html`
-      <sl-dialog
-        label=${this.title}
-        ?open=${this.open}
-        @sl-hide=${() => this.dispatchEvent(
-          new CustomEvent("close", { bubbles: true, composed: true }),
-        )}
-      >
-        <p>${this.body}</p>
-        <div slot="footer" class="footer">
-          <sl-button
-            variant="neutral"
-            ?disabled=${this.busy}
-            @click=${() => this.dispatchEvent(
-              new CustomEvent("cancel", { bubbles: true, composed: true }),
-            )}
-          >
-            Cancel
-          </sl-button>
-          <sl-button
-            variant="danger"
-            ?disabled=${this.busy}
-            ?loading=${this.busy}
-            @click=${this.onConfirm}
-          >
-            ${this.confirmLabel}
-          </sl-button>
+      <div class="overlay" @click=${this.onBackdrop}>
+        <div class="sheet" role="dialog" aria-label=${this.title}>
+          <button class="close" @click=${this.onCancel} aria-label="Close">✕</button>
+          <h2>${this.title}</h2>
+          <p class="body">${this.body}</p>
+          <div class="actions">
+            <button class="btn" @click=${this.onCancel} ?disabled=${this.busy}>
+              cancel
+            </button>
+            <button
+              class="btn danger"
+              @click=${this.onConfirm}
+              ?disabled=${this.busy}
+            >
+              ${this.busy ? "working…" : this.confirmLabel}
+            </button>
+          </div>
         </div>
-      </sl-dialog>
+      </div>
     `;
   }
 
   static styles = css`
-    .footer {
+    .overlay {
+      position: fixed;
+      inset: 0;
+      background: color-mix(in oklab, var(--bg) 70%, transparent);
+      backdrop-filter: blur(4px);
+      z-index: 50;
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+      padding: var(--s-6) var(--s-5);
+    }
+    .sheet {
+      max-width: 480px;
+      width: 100%;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: var(--s-5);
+      animation: fade-up var(--dur) var(--ease);
+    }
+    .close {
+      background: transparent;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--mute);
+      font-family: var(--font-mono);
+      font-size: var(--step--1);
+      padding: var(--s-1) var(--s-3);
+      cursor: pointer;
+      margin-bottom: var(--s-4);
+      transition: all var(--dur-fast) var(--ease);
+    }
+    .close:hover {
+      color: var(--text);
+      border-color: var(--amber-dim);
+    }
+    h2 {
+      font-size: var(--step-2);
+      margin: 0 0 var(--s-3);
+    }
+    .body {
+      margin: 0;
+      color: var(--text-dim);
+      font-size: var(--step-0);
+    }
+    .actions {
       display: flex;
       justify-content: flex-end;
-      gap: var(--space-2);
+      gap: var(--s-2);
+      margin-top: var(--s-5);
     }
-    p {
-      margin: 0;
-      font-size: var(--text-sm);
-      color: var(--text-muted);
+    .btn {
+      font-family: var(--font-mono);
+      font-size: var(--step-0);
+      padding: var(--s-2) var(--s-5);
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text);
+      cursor: pointer;
+      transition: all var(--dur-fast) var(--ease);
+    }
+    .btn:hover:not(:disabled) {
+      border-color: var(--amber);
+      color: var(--amber);
+    }
+    .btn.danger:hover:not(:disabled) {
+      border-color: var(--bad);
+      color: var(--bad);
+    }
+    .btn:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
     }
   `;
 }

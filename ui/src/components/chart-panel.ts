@@ -1,7 +1,5 @@
 import { LitElement, css, html } from "lit";
 import { customElement, property } from "lit/decorators.js";
-import "@shoelace-style/shoelace/dist/components/card/card.js";
-import "@shoelace-style/shoelace/dist/components/button/button.js";
 import "./line-chart.js";
 import type { YFormat } from "./line-chart.js";
 import type { ChartSeries } from "../types.js";
@@ -33,23 +31,18 @@ export class ChartPanel extends LitElement {
 
   override render() {
     return html`
-      <sl-card class="card">
-        <div class="header">
+      <section class="card">
+        <header class="header">
           <h3>${this.title}</h3>
           <div class="actions">
             ${this.zoomed
-              ? html`<sl-button
-                  size="small"
-                  variant="text"
-                  @click=${this.resetZoom}
-                >
-                  <sl-icon name="arrow-counterclockwise" label="Reset zoom"></sl-icon>
-                  Reset zoom
-                </sl-button>`
+              ? html`<button class="btn" @click=${this.resetZoom}>
+                  ↺ reset
+                </button>`
               : ""}
             <slot name="controls"></slot>
           </div>
-        </div>
+        </header>
         <broadside-line-chart
           .series=${this.series}
           .yFormat=${this.yFormat}
@@ -58,30 +51,57 @@ export class ChartPanel extends LitElement {
           .fill=${this.fill}
           .domain=${this.domain}
         ></broadside-line-chart>
-      </sl-card>
+      </section>
     `;
   }
 
   static styles = css`
     .card {
-      display: block;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: var(--s-5);
       height: 100%;
+      box-sizing: border-box;
+      transition: border-color var(--dur-fast) var(--ease);
+    }
+    .card:hover {
+      border-color: var(--rule-2);
     }
     .header {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: var(--space-3);
-      margin-bottom: var(--space-2);
+      gap: var(--s-3);
+      margin-bottom: var(--s-2);
     }
     h3 {
       margin: 0;
-      font-size: var(--text-base);
+      font-family: var(--font-mono);
+      font-size: var(--step-0);
+      font-weight: 500;
+      color: var(--text);
+      letter-spacing: 0.01em;
     }
     .actions {
       display: flex;
       align-items: center;
-      gap: var(--space-2);
+      gap: var(--s-2);
+    }
+    .btn {
+      font-family: var(--font-mono);
+      font-size: var(--step--1);
+      padding: var(--s-1) var(--s-3);
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--mute);
+      cursor: pointer;
+      transition: all var(--dur-fast) var(--ease);
+    }
+    .btn:hover {
+      color: var(--text);
+      border-color: var(--amber-dim);
     }
   `;
 }

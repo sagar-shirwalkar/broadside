@@ -1,12 +1,5 @@
 import { LitElement, css, html } from "lit";
 import { customElement, state } from "lit/decorators.js";
-import "@shoelace-style/shoelace/dist/components/card/card.js";
-import "@shoelace-style/shoelace/dist/components/badge/badge.js";
-import "@shoelace-style/shoelace/dist/components/button/button.js";
-import "@shoelace-style/shoelace/dist/components/select/select.js";
-import "@shoelace-style/shoelace/dist/components/option/option.js";
-import "@shoelace-style/shoelace/dist/components/spinner/spinner.js";
-import "@shoelace-style/shoelace/dist/components/icon/icon.js";
 import { api, apiGet } from "../api.js";
 import type { RunRow, RunStatus } from "../types.js";
 import { formatDuration, formatMs, formatNumber, formatPercent, latencyClass, relativeTime } from "../format.js";
@@ -57,14 +50,16 @@ export class RunList extends LitElement {
     void this.load();
   }
 
-  private badgeFor(status: RunStatus) {
-    if (status === "running") {
-      return html`<sl-badge variant="success" class="pulse">running</sl-badge>`;
-    }
-    if (status === "failed") {
-      return html`<sl-badge variant="danger">failed</sl-badge>`;
-    }
-    return html`<sl-badge variant="neutral">completed</sl-badge>`;
+  private statusGlyph(status: RunStatus): string {
+    if (status === "running") return "●";
+    if (status === "failed") return "✕";
+    return "✓";
+  }
+
+  private statusClass(status: RunStatus): string {
+    if (status === "running") return "status-running";
+    if (status === "failed") return "status-failed";
+    return "status-done";
   }
 
   private askDelete(row: RunRow) {
@@ -93,11 +88,10 @@ export class RunList extends LitElement {
         <div class="toolbar">
           <h1>Runs</h1>
           <div class="controls">
-            <sl-select
-              size="small"
-              class="size"
+            <select
+              class="btn select"
               .value=${String(this.limit)}
-              @sl-change=${(e: Event) => {
+              @change=${(e: Event) => {
                 this.limit = Number(
                   (e.target as HTMLSelectElement).value,
                 );
@@ -107,12 +101,11 @@ export class RunList extends LitElement {
               aria-label="Rows per page"
             >
               ${PAGE_SIZES.map(
-                (n) => html`<sl-option value=${String(n)}>${n}</sl-option>`,
+                (n) => html`<option value=${String(n)}>${n}/page</option>`,
               )}
-            </sl-select>
-            <sl-button
-              size="small"
-              variant="primary"
+            </select>
+            <button
+              class="btn primary"
               @click=${() =>
                 this.dispatchEvent(
                   new CustomEvent("new-run", {
@@ -121,31 +114,28 @@ export class RunList extends LitElement {
                   }),
                 )}
             >
-              <sl-icon slot="prefix" name="plus"></sl-icon>
-              New Run
-            </sl-button>
+              + new run
+            </button>
           </div>
         </div>
 
-        <sl-card class="table-card">
+        <div class="table-wrap">
           ${this.loading
             ? html`<broadside-skeleton variant="table"></broadside-skeleton>`
             : this.runs.length === 0
-              ? html`<p class="empty">
-                  No runs yet. Create one with the "New Run" button.
-                </p>`
+              ? html`<p class="empty">// no runs yet — hit "+ new run"</p>`
               : html`<table>
                   <thead>
                     <tr>
-                      <th>ID</th>
-                      <th>Started</th>
-                      <th>Duration</th>
-                      <th>Requests</th>
+                      <th>id</th>
+                      <th>started</th>
+                      <th>duration</th>
+                      <th>requests</th>
                       <th>p50</th>
                       <th>p95</th>
                       <th>p99</th>
-                      <th>Errors</th>
-                      <th>Status</th>
+                      <th>errors</th>
+                      <th>status</th>
                       <th aria-label="Actions"></th>
                     </tr>
                   </thead>
@@ -154,7 +144,7 @@ export class RunList extends LitElement {
                       (row) => html`<tr
                         @click=${() => navigate(`/runs/${row.id}`)}
                       >
-                        <td class="mono id">${row.id.slice(0, 8)}…</td>
+                        <td class="mono id">${row.id.slice(0, 8)}</td>
                         <td class="muted" title=${row.started_at}>
                           ${relativeTime(row.started_at)}
                         </td>
@@ -170,44 +160,45 @@ export class RunList extends LitElement {
                           ${formatMs(row.p99)}
                         </td>
                         <td>${formatPercent(row.error_rate)}</td>
-                        <td>${this.badgeFor(row.status)}</td>
+                        <td class=${this.statusClass(row.status)}>
+                          <span class="glyph" aria-hidden="true">${this.statusGlyph(row.status)}</span>
+                          ${row.status}
+                        </td>
                         <td>
-                          <sl-button
-                            size="small"
-                            variant="text"
+                          <button
+                            class="icon-btn"
+                            title="Delete run"
+                            aria-label="Delete run"
                             @click=${(e: Event) => {
                               e.stopPropagation();
                               this.askDelete(row);
                             }}
                           >
-                            <sl-icon
-                              name="trash"
-                              label="Delete run"
-                            ></sl-icon>
-                          </sl-button>
+                            ✕
+                          </button>
                         </td>
                       </tr>`,
                     )}
                   </tbody>
                 </table>`}
-        </sl-card>
+        </div>
 
         <div class="pager">
-          <sl-button
-            size="small"
+          <button
+            class="btn"
             ?disabled=${this.offset === 0 || this.loading}
             @click=${() => this.changePage(-1)}
           >
-            Previous
-          </sl-button>
-          <span class="page-info">Page ${this.page}</span>
-          <sl-button
-            size="small"
+            ← prev
+          </button>
+          <span class="page-info">page ${this.page}</span>
+          <button
+            class="btn"
             ?disabled=${!this.hasNext || this.loading}
             @click=${() => this.changePage(1)}
           >
-            Next
-          </sl-button>
+            next →
+          </button>
         </div>
       </div>
 
@@ -215,14 +206,14 @@ export class RunList extends LitElement {
         .open=${this.confirmOpen}
         .busy=${this.confirmBusy}
         .title=${this.confirmTarget?.status === "running"
-          ? "Kill run?"
-          : "Delete run?"}
+          ? "kill run?"
+          : "delete run?"}
         .body=${this.confirmTarget?.status === "running"
           ? "This will terminate the Artillery process. Partial data may be lost."
           : "This will permanently remove the run and all its metrics."}
         .confirmLabel=${this.confirmTarget?.status === "running"
-          ? "Kill"
-          : "Delete"}
+          ? "kill"
+          : "delete"}
         @close=${() => (this.confirmOpen = false)}
         @confirm=${() => void this.doDelete()}
       ></broadside-confirm-dialog>
@@ -233,85 +224,149 @@ export class RunList extends LitElement {
     .page {
       display: flex;
       flex-direction: column;
-      gap: var(--space-4);
+      gap: var(--s-5);
     }
     .toolbar {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: var(--space-4);
+      gap: var(--s-4);
       flex-wrap: wrap;
     }
     h1 {
       margin: 0;
-      font-size: var(--text-xl);
+      font-size: var(--step-3);
     }
     .controls {
       display: flex;
       align-items: center;
-      gap: var(--space-2);
+      gap: var(--s-2);
     }
-    .size {
-      width: 84px;
+    .btn {
+      font-family: var(--font-mono);
+      font-size: var(--step-0);
+      padding: var(--s-2) var(--s-5);
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text);
+      cursor: pointer;
+      transition: all var(--dur-fast) var(--ease);
     }
-    .table-card::part(body) {
-      padding: 0;
+    .btn:hover:not(:disabled) {
+      border-color: var(--amber);
+      color: var(--amber);
+    }
+    .btn.primary {
+      background: var(--amber);
+      border-color: var(--amber);
+      color: var(--ink);
+    }
+    .btn.primary:hover:not(:disabled) {
+      background: var(--amber-dim);
+      color: var(--ink);
+    }
+    .btn:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+    .select {
+      appearance: none;
+      padding-right: 28px;
+      background: var(--surface)
+        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23a0a4ac' fill='none' stroke-width='1.5'/%3E%3C/svg%3E")
+        no-repeat right 10px center;
+      outline: none;
+    }
+    .table-wrap {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
       overflow-x: auto;
+      padding: var(--s-2) var(--s-5);
     }
     .empty {
-      padding: var(--space-8);
+      padding: var(--s-8);
       text-align: center;
-      color: var(--text-muted);
+      color: var(--mute);
+      font-family: var(--font-mono);
+      font-size: var(--step--1);
     }
     table {
       width: 100%;
       border-collapse: collapse;
-      font-size: var(--text-sm);
+      font-size: var(--step-0);
+      font-family: var(--font-mono);
+      font-variant-numeric: tabular-nums;
     }
     th {
       text-align: left;
-      font-weight: 600;
-      color: var(--text-muted);
-      font-size: var(--text-xs);
+      font-weight: 500;
+      color: var(--mute);
+      font-size: var(--step--1);
       text-transform: uppercase;
-      letter-spacing: 0.04em;
-      padding: var(--space-3) var(--space-4);
+      letter-spacing: 0.08em;
+      padding: var(--s-3) var(--s-4);
       border-bottom: 1px solid var(--border);
     }
     td {
-      padding: var(--space-3) var(--space-4);
+      padding: var(--s-3) var(--s-4);
       border-bottom: 1px solid var(--border);
-      font-variant-numeric: tabular-nums;
+      color: var(--text-dim);
+    }
+    tbody tr:last-child td {
+      border-bottom: none;
     }
     tbody tr {
       cursor: pointer;
+      transition: background var(--dur-fast) var(--ease);
     }
     tbody tr:hover {
-      background: var(--surface-hover);
+      background: color-mix(in oklab, var(--surface) 50%, transparent);
     }
     .id {
-      color: var(--brand-strong);
+      color: var(--accent);
     }
     .muted {
-      color: var(--text-muted);
+      color: var(--mute);
     }
-    .pulse {
-      animation: pulse 1.6s ease-in-out infinite;
+    .glyph {
+      font-size: var(--step--1);
     }
-    @keyframes pulse {
-      50% {
-        opacity: 0.55;
-      }
+    .status-running {
+      color: var(--ok);
+    }
+    .status-failed {
+      color: var(--bad);
+    }
+    .status-done {
+      color: var(--mute);
+    }
+    .icon-btn {
+      background: transparent;
+      border: 1px solid transparent;
+      border-radius: var(--radius);
+      color: var(--mute);
+      font-family: var(--font-mono);
+      font-size: var(--step--1);
+      padding: var(--s-1) var(--s-3);
+      cursor: pointer;
+      transition: all var(--dur-fast) var(--ease);
+    }
+    .icon-btn:hover {
+      color: var(--bad);
+      border-color: var(--bad);
     }
     .pager {
       display: flex;
       align-items: center;
       justify-content: center;
-      gap: var(--space-4);
+      gap: var(--s-4);
     }
     .page-info {
-      font-size: var(--text-sm);
-      color: var(--text-muted);
+      font-family: var(--font-mono);
+      font-size: var(--step--1);
+      color: var(--mute);
       min-width: 70px;
       text-align: center;
     }

@@ -106,7 +106,7 @@ pnpm task setup
 - UI tests: `pnpm task ui:test` (Vitest, pure-logic: router parsing, formatters) and `pnpm task ui:test:e2e` (Playwright, 9 scenarios with the API stubbed at the network layer, so no database is needed). E2E needs browsers: `cd ui && pnpm exec playwright install chromium`. CI runs both.
 - The UI type-checks as part of its build (`tsc --noEmit && vite build`). The root `tsc` does not cover `ui/` — run `cd ui && pnpm typecheck` to check it alone.
 - Routing is hash-based (`#/renders`), so no static-host rewrite rules are needed; the API server's SPA fallback serves `index.html` for unknown non-API GETs.
-- Charts are hand-rolled SVG with `d3-scale`/`d3-shape`; colors come from CSS custom properties (`--chart-line-*`) so the dark/light toggle re-colors rendered paths without re-rendering.
+- Charts are hand-rolled SVG (`ui/src/chart-svg.ts` for scales/paths, `line-chart.ts` for rendering); colors come from CSS custom properties (`--chart-line-*`) so the dark/light toggle re-colors rendered paths without re-rendering. The SVG children are injected via `innerHTML` on the `<g>` — Lit `${...}` interpolations inside `<svg>` land in the XHTML namespace and don't render.
 - API calls go through `apiGet`/`api` in `ui/src/api.ts`, which centralizes the Bearer token and 401 handling. UI tests: `pnpm task ui:test` (Vitest) and `pnpm task ui:test:e2e` (Playwright, API stubbed — see the Testing section).
 
 ## Adding features

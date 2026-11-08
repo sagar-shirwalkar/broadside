@@ -1,20 +1,34 @@
 import { LitElement, css, html } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
-import { scaleTime, scaleLinear } from "d3-scale";
-import { line, area } from "d3-shape";
-import type { ChartPoint, ChartSeries } from "../types.js";
+import type { ChartSeries } from "../types.js";
 import { formatClock, formatTick } from "../format.js";
+import {
+  areaPathFrom,
+  linScale,
+  linePathFrom,
+  nearestTime,
+  niceTicks,
+  timeTicks,
+} from "../chart-svg.js";
 
 export type YFormat = "ms" | "req/s" | "%" | "count";
 
-const MARGIN = { top: 12, right: 16, bottom: 28, left: 52 };
+const MARGIN = { top: 12, right: 16, bottom: 28, left: 60 };
+const TICK_COUNT_Y = 5;
+const TICK_COUNT_X = 6;
 
 /**
- * Pure-SVG time-series chart (no charting library):
- * - path line + optional area fill per series
- * - horizontal grid, 4-6 y ticks, 5-8 x ticks
- * - crosshair + tooltip on hover (binary search on the time axis)
- * - drag-to-zoom on the plot area, emitting a `zoom` event
+ * Pure-SVG time-series chart (no charting library, hand-rolled scales):
+ * polyline + optional area fill, horizontal grid, nice ticks, crosshair
+ * tooltip, drag-to-zoom, single-point markers.
+ *
+ * The SVG children are built as a string and injected via innerHTML on the
+ * <g> element. Lit nested `${...}` templates parse into the XHTML
+ * namespace (HTML <path>s don't render), while setting innerHTML on an
+ * SVG element parses in the correct SVG namespace. All injected values
+ * are computed numbers/timestamps — never user strings — so this is not
+ * an XSS vector; series names only appear in the legend/tooltip as
+ * Lit-escaped text.
  *
  * Series colors come from `--chart-line-N` CSS custom properties via CSS
  * classes, so a theme toggle re-colors rendered paths without re-rendering.
@@ -43,8 +57,13 @@ export class LineChart extends LitElement {
     super.connectedCallback();
     this.resizeObserver = new ResizeObserver((entries) => {
       const rect = entries[0]?.contentRect;
-      if (rect) this.width = Math.floor(rect.width);
+      if (rect && rect.width > 0) {
+        this.width = Math.floor(rect.width);
+      }
     });
+    // Observe the host (block, full panel width) — more reliable across
+    // engines than the inner wrapper.
+    this.resizeObserver.observe(this);
   }
 
   override disconnectedCallback() {
@@ -53,25 +72,27 @@ export class LineChart extends LitElement {
   }
 
   override firstUpdated() {
-    const container = this.renderRoot.querySelector(".wrap");
-    if (container && this.resizeObserver) {
-      this.resizeObserver.observe(container);
+    // Seed synchronously so the first paint is already sized; the
+    // observer keeps it correct on resize.
+    if (this.clientWidth > 0) {
+      this.width = this.clientWidth;
     }
   }
 
-  // ─── Scales / geometry ───
-
-  private get plotWidth() {
-    return Math.max(0, this.width - MARGIN.left - MARGIN.right);
+  override updated() {
+    // See class comment: innerHTML on an SVG element parses in the
+    // correct namespace, unlike Lit nested templates.
+    const g = this.renderRoot.querySelector("g");
+    if (!g || this.plotWidth === 0) return;
+    const content = this.svgContent();
+    if (g.innerHTML !== content) g.innerHTML = content;
   }
 
-  private get plotHeight() {
-    return Math.max(0, this.height - MARGIN.top - MARGIN.bottom);
-  }
+  // ─── Domains ───
 
   /** Spread-safe min/max: raw zooms can carry 100k points, where
    *  `Math.min(...values)` overflows the call stack. */
-  private bounds(pick: (p: ChartPoint) => number): [number, number] | null {
+  private bounds(pick: (p: { time: number; value: number }) => number): [number, number] | null {
     let min = Infinity;
     let max = -Infinity;
     let seen = false;
@@ -86,17 +107,20 @@ export class LineChart extends LitElement {
     return seen ? [min, max] : null;
   }
 
-  private xDomain(): [Date, Date] {
-    if (this.domain) {
-      return [new Date(this.domain[0]), new Date(this.domain[1])];
-    }
+  private xDomain(): [number, number] {
+    if (this.domain) return this.domain;
     const times = this.bounds((p) => p.time);
     if (!times) {
       const now = Date.now();
-      return [new Date(now - 3_600_000), new Date(now)];
+      return [now - 3_600_000, now];
     }
     const [min, max] = times;
-    return [new Date(min), new Date(max === min ? max + 1 : max)];
+    if (max === min) {
+      // Single bucket (a short run): center the point in a 2-minute
+      // window so it does not collapse onto the plot edge.
+      return [min - 60_000, min + 60_000];
+    }
+    return [min, max];
   }
 
   private yDomain(): [number, number] {
@@ -114,57 +138,40 @@ export class LineChart extends LitElement {
           : `${value.toFixed(0)}`;
       case "req/s":
         return value.toFixed(0);
-      case "%":
-        return `${(value * 100).toFixed(0)}%`;
+      case "%": {
+        const pct = value * 100;
+        return `${pct.toFixed(pct < 10 ? 1 : 0)}%`;
+      }
       case "count":
         return value.toFixed(0);
     }
   }
 
-  private lineFor(s: ChartSeries, x: (d: Date) => number, y: (v: number) => number) {
-    return line<ChartPoint>(
-      (p) => x(new Date(p.time)),
-      (p) => y(p.value),
-    )(s.points);
-  }
-
   // ─── Interaction ───
 
-  private nearestPoint(times: number[], target: number): number | null {
-    if (times.length === 0) return null;
-    let lo = 0;
-    let hi = times.length - 1;
-    while (lo < hi) {
-      const mid = (lo + hi) >> 1;
-      if (times[mid] < target) lo = mid + 1;
-      else hi = mid;
-    }
-    const candidates = [
-      times[Math.max(0, lo - 1)],
-      times[Math.min(times.length - 1, lo)],
-    ].filter((t): t is number => t !== undefined);
-    return candidates.reduce((best, t) =>
-      Math.abs(t - target) < Math.abs(best - target) ? t : best,
-    );
+  private svgX(event: MouseEvent, svg: SVGSVGElement): number {
+    const rect = svg.getBoundingClientRect();
+    return ((event.clientX - rect.left) / rect.width) * this.width;
   }
 
   private onMouseMove(event: MouseEvent) {
     const svg = this.renderRoot.querySelector("svg");
     if (!svg) return;
     if (this.dragStart !== null) {
-      const x1 = this.svgX(event, svg);
+      // Keep brush coordinates plot-relative, matching dragStart.
+      const x1 = this.svgX(event, svg) - MARGIN.left;
       this.brush = {
         x0: Math.min(this.dragStart, x1),
         x1: Math.max(this.dragStart, x1),
       };
       return;
     }
-    const x = scaleTime().domain(this.xDomain()).range([0, this.plotWidth]);
-    const value = x.invert(this.svgX(event, svg) - MARGIN.left);
-    const times = [...new Set(this.series.flatMap((s) => s.points.map((p) => p.time)))].sort(
-      (a, b) => a - b,
-    );
-    this.hoverTime = this.nearestPoint(times, value.getTime());
+    const invert = linScale(this.xDomain(), [0, this.plotWidth]).invert;
+    const value = invert(this.svgX(event, svg) - MARGIN.left);
+    const times = [
+      ...new Set(this.series.flatMap((s) => s.points.map((p) => p.time))),
+    ].sort((a, b) => a - b);
+    this.hoverTime = nearestTime(times, value);
   }
 
   private onMouseDown(event: MouseEvent) {
@@ -175,32 +182,25 @@ export class LineChart extends LitElement {
 
   private onMouseUp(event: MouseEvent) {
     const svg = this.renderRoot.querySelector("svg");
-    if (!svg || this.dragStart === null) {
-      this.dragStart = null;
-      this.brush = null;
-      return;
+    if (svg && this.dragStart !== null) {
+      const x1 = this.svgX(event, svg) - MARGIN.left;
+      const x0 = this.dragStart;
+      if (Math.abs(x1 - x0) >= 8) {
+        const invert = linScale(this.xDomain(), [0, this.plotWidth]).invert;
+        this.dispatchEvent(
+          new CustomEvent("zoom", {
+            detail: {
+              from: invert(Math.min(x0, x1)),
+              to: invert(Math.max(x0, x1)),
+            },
+            bubbles: true,
+            composed: true,
+          }),
+        );
+      }
     }
-    const x1 = this.svgX(event, svg) - MARGIN.left;
-    const x0 = this.dragStart;
     this.dragStart = null;
     this.brush = null;
-    if (Math.abs(x1 - x0) < 8) return; // treat as a plain click
-
-    const x = scaleTime().domain(this.xDomain()).range([0, this.plotWidth]);
-    const from = x.invert(Math.min(x0, x1)).getTime();
-    const to = x.invert(Math.max(x0, x1)).getTime();
-    this.dispatchEvent(
-      new CustomEvent("zoom", {
-        detail: { from, to },
-        bubbles: true,
-        composed: true,
-      }),
-    );
-  }
-
-  private svgX(event: MouseEvent, svg: SVGSVGElement): number {
-    const rect = svg.getBoundingClientRect();
-    return ((event.clientX - rect.left) / rect.width) * this.width;
   }
 
   private hoverRows() {
@@ -208,24 +208,109 @@ export class LineChart extends LitElement {
     const rows: Array<{ name: string; colorIndex: number; value: number }> = [];
     for (const s of this.series) {
       const point = s.points.find((p) => p.time === this.hoverTime);
-      if (point) rows.push({ name: s.name, colorIndex: s.colorIndex, value: point.value });
+      if (point) {
+        rows.push({ name: s.name, colorIndex: s.colorIndex, value: point.value });
+      }
     }
     return rows;
+  }
+
+  private get plotWidth() {
+    return Math.max(0, this.width - MARGIN.left - MARGIN.right);
+  }
+
+  private get plotHeight() {
+    return Math.max(0, this.height - MARGIN.top - MARGIN.bottom);
+  }
+
+  // ─── SVG content ───
+
+  /** Builds the full inner SVG markup. Numbers only — no user strings. */
+  private svgContent(): string {
+    const pw = this.plotWidth;
+    const ph = this.plotHeight;
+    const xDomain = this.xDomain();
+    const yDomain = this.yDomain();
+    const x = linScale(xDomain, [0, pw]);
+    const y = linScale(yDomain, [ph, 0]);
+    const xTicks = timeTicks(xDomain[0], xDomain[1], TICK_COUNT_X);
+    const yTicks = niceTicks(yDomain[0], yDomain[1], TICK_COUNT_Y);
+    const span = xDomain[1] - xDomain[0];
+
+    const parts: string[] = [];
+
+    if (this.showGrid) {
+      for (const t of yTicks) {
+        parts.push(
+          `<line class="grid" x1="0" x2="${pw}" y1="${y(t)}" y2="${y(t)}"/>`,
+        );
+      }
+    }
+
+    for (const t of yTicks) {
+      parts.push(
+        `<text class="axis" x="-8" y="${y(t)}" text-anchor="end" dominant-baseline="middle">${this.formatY(t)}</text>`,
+      );
+    }
+
+    xTicks.forEach((t, i) => {
+      const anchor =
+        i === 0 ? "start" : i === xTicks.length - 1 ? "end" : "middle";
+      parts.push(
+        `<text class="axis" x="${x(t)}" y="${ph + 18}" text-anchor="${anchor}">${formatTick(t, span)}</text>`,
+      );
+    });
+
+    for (const s of this.series) {
+      if (this.fill && s.points.length > 1) {
+        parts.push(
+          `<path class="fill fill-${s.colorIndex}" d="${areaPathFrom(s.points, x, y, ph)}"/>`,
+        );
+      }
+      if (s.points.length > 1) {
+        parts.push(
+          `<path class="line line-${s.colorIndex}" d="${linePathFrom(s.points, x, y)}"/>`,
+        );
+      }
+      const single = s.points.length === 1;
+      if (single) {
+        // d3-less line makes no segment for one point — draw a marker.
+        const p = s.points[0]!;
+        parts.push(
+          `<circle class="dot dot-${s.colorIndex}" cx="${x(p.time)}" cy="${y(p.value)}" r="4.5"/>`,
+        );
+      } else if (this.showDots) {
+        for (const p of s.points) {
+          parts.push(
+            `<circle class="dot dot-${s.colorIndex}" cx="${x(p.time)}" cy="${y(p.value)}" r="2.5"/>`,
+          );
+        }
+      }
+    }
+
+    if (this.brush) {
+      parts.push(
+        `<rect class="brush" x="${Math.min(this.brush.x0, this.brush.x1)}" y="0" width="${Math.abs(this.brush.x1 - this.brush.x0)}" height="${ph}"/>`,
+      );
+    }
+
+    if (this.hoverTime !== null) {
+      const hoverX = x(this.hoverTime);
+      parts.push(
+        `<line class="crosshair" x1="${hoverX}" x2="${hoverX}" y1="0" y2="${ph}"/>`,
+      );
+    }
+
+    return parts.join("");
   }
 
   // ─── Render ───
 
   override render() {
-    const pw = this.plotWidth;
-    const ph = this.plotHeight;
-    const x = scaleTime().domain(this.xDomain()).range([0, pw]);
-    const y = scaleLinear().domain(this.yDomain()).range([ph, 0]);
-    const xTicks = x.ticks(6);
-    const yTicks = y.ticks(5);
-    const span = this.xDomain()[1].getTime() - this.xDomain()[0].getTime();
-
     const hoverX =
-      this.hoverTime === null ? null : x(new Date(this.hoverTime));
+      this.hoverTime === null
+        ? null
+        : linScale(this.xDomain(), [0, this.plotWidth])(this.hoverTime);
 
     return html`
       <div class="wrap">
@@ -238,97 +323,23 @@ export class LineChart extends LitElement {
               )}
             </div>`
           : ""}
-        <svg
-          width=${this.width}
-          height=${this.height}
-          @mousemove=${this.onMouseMove}
-          @mousedown=${this.onMouseDown}
-          @mouseup=${this.onMouseUp}
-          @mouseleave=${() => {
-            this.hoverTime = null;
-            this.brush = null;
-          }}
-          role="img"
-          aria-label="Time-series chart"
-        >
-          <g transform="translate(${MARGIN.left},${MARGIN.top})">
-            ${this.showGrid
-              ? yTicks.map(
-                  (t) => html`<line
-                    class="grid"
-                    x1="0"
-                    x2=${pw}
-                    y1=${y(t)}
-                    y2=${y(t)}
-                  />`,
-                )
-              : ""}
-            ${yTicks.map(
-              (t) => html`<text
-                class="axis"
-                x="-8"
-                y=${y(t)}
-                text-anchor="end"
-                dominant-baseline="middle"
-              >
-                ${this.formatY(t)}
-              </text>`,
-            )}
-            ${xTicks.map(
-              (t) => html`<text
-                class="axis"
-                x=${x(t)}
-                y=${ph + 18}
-                text-anchor="middle"
-              >
-                ${formatTick(t.getTime(), span)}
-              </text>`,
-            )}
-            ${this.series.map((s) => {
-              const path = this.lineFor(s, x, y);
-              return html`
-                ${this.fill
-                  ? html`<path
-                      class="fill fill-${s.colorIndex}"
-                      d=${area<ChartPoint>()
-                        .x((p) => x(new Date(p.time)))
-                        .y0(ph)
-                        .y1((p) => y(p.value))(s.points)}
-                    />`
-                  : ""}
-                <path class="line line-${s.colorIndex}" d=${path} />
-                ${this.showDots
-                  ? s.points.map(
-                      (p) => html`<circle
-                        class="dot dot-${s.colorIndex}"
-                        cx=${x(new Date(p.time))}
-                        cy=${y(p.value)}${""}
-                        r="2.5"
-                      />`,
-                    )
-                  : ""}
-              `;
-            })}
-            ${this.brush
-              ? html`<rect
-                  class="brush"
-                  x=${this.brush.x0}
-                  y="0"
-                  width=${Math.max(0, this.brush.x1 - this.brush.x0)}
-                  height=${ph}
-                />`
-              : ""}
-            ${hoverX !== null
-              ? html`<line
-                  class="crosshair"
-                  x1=${hoverX}
-                  x2=${hoverX}
-                  y1="0"
-                  y2=${ph}
-                />`
-              : ""}
-          </g>
-        </svg>
+        ${this.plotWidth > 0
+          ? html`<svg
+              width=${this.width}
+              height=${this.height}
+              @mousemove=${this.onMouseMove}
+              @mousedown=${this.onMouseDown}
+              @mouseup=${this.onMouseUp}
+              @mouseleave=${() => {
+                this.hoverTime = null;
+                this.brush = null;
+              }}
+              role="img"
+              aria-label="Time-series chart"
+            >
+              <g transform="translate(${MARGIN.left},${MARGIN.top})"></g>
+            </svg>`
+          : ""}
         ${hoverX !== null && this.hoverRows().length
           ? html`<div
               class="tooltip"
@@ -352,8 +363,12 @@ export class LineChart extends LitElement {
   }
 
   static styles = css`
+    :host {
+      display: block;
+    }
     .wrap {
       position: relative;
+      width: 100%;
     }
     .legend {
       display: flex;
@@ -405,7 +420,8 @@ export class LineChart extends LitElement {
     .line {
       fill: none;
       stroke-width: 2;
-      vector-effect: non-scaling-stroke;
+      stroke-linejoin: round;
+      stroke-linecap: round;
     }
     .line-1 {
       stroke: var(--chart-line-1);
@@ -424,7 +440,7 @@ export class LineChart extends LitElement {
     }
     .fill {
       stroke: none;
-      opacity: 0.12;
+      fill-opacity: 0.13;
     }
     .fill-1 {
       fill: var(--chart-line-1);

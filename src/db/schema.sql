@@ -36,6 +36,10 @@ CREATE TABLE IF NOT EXISTS runs (
 );
 
 -- Continuous Aggregates (hierarchical)
+-- NOTE: GROUP BY is positional on purpose. `GROUP BY bucket` in the 1h/1d
+-- views resolves to the *source* CAGG's bucket column (not the new
+-- time_bucket output), which makes TimescaleDB reject the definition with
+-- "continuous aggregate view must include a valid time bucket function".
 CREATE MATERIALIZED VIEW IF NOT EXISTS metrics_1m
 WITH (timescaledb.continuous) AS
 SELECT
@@ -49,7 +53,7 @@ SELECT
   avg(error_rate) AS error_rate,
   count(*)        AS samples
 FROM metrics
-GROUP BY bucket, run_id, endpoint
+GROUP BY 1, 2, 3
 WITH NO DATA;
 
 CREATE MATERIALIZED VIEW IF NOT EXISTS metrics_1h
@@ -65,7 +69,7 @@ SELECT
   avg(error_rate) AS error_rate,
   sum(samples)    AS samples
 FROM metrics_1m
-GROUP BY bucket, run_id, endpoint
+GROUP BY 1, 2, 3
 WITH NO DATA;
 
 CREATE MATERIALIZED VIEW IF NOT EXISTS metrics_1d
@@ -81,7 +85,7 @@ SELECT
   avg(error_rate) AS error_rate,
   sum(samples)    AS samples
 FROM metrics_1h
-GROUP BY bucket, run_id, endpoint
+GROUP BY 1, 2, 3
 WITH NO DATA;
 
 -- Refresh policies

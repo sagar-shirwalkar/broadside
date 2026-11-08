@@ -67,12 +67,14 @@ export function formatDay(ms: number): string {
 }
 
 /**
- * X-axis tick format: clock time for spans under a day, day labels above.
+ * X-axis tick format: 24h clock time for spans under a day (keeps labels
+ * narrow enough not to collide), day labels above.
  */
 export function formatTick(ms: number, spanMs: number): string {
-  return spanMs > 24 * 60 * 60 * 1000
-    ? formatDay(ms)
-    : formatClock(ms);
+  if (spanMs > 24 * 60 * 60 * 1000) return formatDay(ms);
+  const d = new Date(ms);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
 
 /**

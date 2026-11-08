@@ -59,10 +59,15 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   }
 
   if (!res.ok) {
-    const body = (await res.json().catch(() => null)) as {
-      error?: string;
-    } | null;
-    const message = body?.error ?? `request failed (${res.status})`;
+    // Error bodies may be JSON ({ error }) or plain text (proxy/crash 500s).
+    const text = await res.text().catch(() => "");
+    let message = `request failed (${res.status})`;
+    try {
+      const parsed = JSON.parse(text) as { error?: string };
+      if (parsed?.error) message = parsed.error;
+    } catch {
+      if (text.trim()) message = text.trim();
+    }
     notifyToast(`Failed to load: ${message}`, "danger");
     throw new ApiError(res.status, message);
   }

@@ -1,9 +1,5 @@
 import { LitElement, css, html } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
-import "@shoelace-style/shoelace/dist/components/alert/alert.js";
-import "@shoelace-style/shoelace/dist/components/button/button.js";
-import "@shoelace-style/shoelace/dist/components/badge/badge.js";
-import "@shoelace-style/shoelace/dist/components/icon/icon.js";
 import { apiGet, sseUrl } from "../api.js";
 import type { ChartSeries, RawRow, RunRow } from "../types.js";
 import { formatDuration, formatMs, formatNumber, formatPercent } from "../format.js";
@@ -152,16 +148,15 @@ export class LiveView extends LitElement {
       <div class="page">
         <div class="header">
           <div class="title-block">
-            <sl-button variant="text" size="small" @click=${() => navigate("/")}>
-              <sl-icon slot="prefix" name="arrow-left"></sl-icon>
-              Runs
-            </sl-button>
-            <h1 class="mono">${this.runId.slice(0, 8)}…</h1>
+            <button class="link-btn" @click=${() => navigate("/")}>
+              ← runs
+            </button>
+            <h1 class="mono">${this.runId.slice(0, 8)}</h1>
             ${this.finished
-              ? html`<sl-badge variant=${this.finished.status === "failed" ? "danger" : "neutral"}>
-                  ${this.finished.status}
-                </sl-badge>`
-              : html`<sl-badge variant="success" class="pulse">live</sl-badge>`}
+              ? html`<span class="status ${this.finished.status === "failed" ? "status-failed" : "status-done"}">
+                  ${this.finished.status === "failed" ? "✕" : "✓"} ${this.finished.status}
+                </span>`
+              : html`<span class="status status-running"><span class="dot" aria-hidden="true"></span>live</span>`}
           </div>
           <broadside-endpoint-select
             .runId=${this.runId}
@@ -175,43 +170,35 @@ export class LiveView extends LitElement {
         </div>
 
         ${this.reconnecting
-          ? html`<sl-alert variant="warning" open>
-              <sl-icon slot="icon" name="exclamation-triangle"></sl-icon>
-              Stream disconnected — reconnecting…
-            </sl-alert>`
+          ? html`<p class="notice">⚠ stream disconnected — reconnecting…</p>`
           : ""}
         ${this.finished
-          ? html`<sl-alert
-              variant=${this.finished.status === "failed" ? "danger" : "success"}
-              open
-            >
-              <sl-icon slot="icon" name=${this.finished.status === "failed" ? "x-circle" : "check-circle"}></sl-icon>
-              <span>
-                Run ${this.finished.status} — ${formatDuration(this.finished.duration_ms)},
-                ${formatNumber(this.finished.total_requests)} requests,
-                p95 ${formatMs(this.finished.p95)},
-                errors ${formatPercent(this.finished.error_rate)}.
-                <a href="#/runs/${this.runId}">View full report</a>
-              </span>
-            </sl-alert>`
+          ? html`<p class="notice ${this.finished.status === "failed" ? "notice-bad" : "notice-ok"}">
+              ${this.finished.status === "failed" ? "✕" : "✓"} run
+              ${this.finished.status} — ${formatDuration(this.finished.duration_ms)},
+              ${formatNumber(this.finished.total_requests)} requests,
+              p95 ${formatMs(this.finished.p95)},
+              errors ${formatPercent(this.finished.error_rate)}.
+              <a href="#/runs/${this.runId}">view full report →</a>
+            </p>`
           : ""}
 
         ${this.bootstrapping && this.points.length === 0
           ? html`<broadside-skeleton variant="chart"></broadside-skeleton>`
           : html`<div class="grid">
               <broadside-chart-panel
-                title="Requests per second"
+                title="requests / second"
                 .series=${[...aggregate, ...endpointSeries]}
                 yFormat="req/s"
                 .fill=${true}
               ></broadside-chart-panel>
               <broadside-chart-panel
-                title="Latency percentiles"
+                title="latency percentiles"
                 .series=${this.latencySeries()}
                 yFormat="ms"
               ></broadside-chart-panel>
               <broadside-chart-panel
-                title="Error rate"
+                title="error rate"
                 .series=${errorSeries}
                 yFormat="%"
                 .fill=${true}
@@ -225,36 +212,83 @@ export class LiveView extends LitElement {
     .page {
       display: flex;
       flex-direction: column;
-      gap: var(--space-5);
+      gap: var(--s-5);
     }
     .header {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: var(--space-4);
+      gap: var(--s-4);
       flex-wrap: wrap;
     }
     .title-block {
       display: flex;
       align-items: center;
-      gap: var(--space-3);
+      gap: var(--s-3);
+    }
+    .link-btn {
+      background: transparent;
+      border: none;
+      color: var(--mute);
+      font-family: var(--font-mono);
+      font-size: var(--step--1);
+      cursor: pointer;
+      padding: 0;
+      transition: color var(--dur-fast) var(--ease);
+    }
+    .link-btn:hover {
+      color: var(--text);
     }
     h1 {
       margin: 0;
-      font-size: var(--text-xl);
+      font-size: var(--step-3);
     }
-    .pulse {
-      animation: pulse 1.6s ease-in-out infinite;
+    .status {
+      font-family: var(--font-mono);
+      font-size: var(--step--1);
+      display: inline-flex;
+      align-items: center;
+      gap: var(--s-2);
     }
-    @keyframes pulse {
-      50% {
-        opacity: 0.55;
-      }
+    .status .dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--ok);
+      box-shadow: 0 0 8px var(--ok);
+    }
+    .status-running {
+      color: var(--ok);
+    }
+    .status-failed {
+      color: var(--bad);
+    }
+    .status-done {
+      color: var(--mute);
+    }
+    .notice {
+      margin: 0;
+      font-family: var(--font-mono);
+      font-size: var(--step--1);
+      color: var(--warn);
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-left: 4px solid var(--warn);
+      border-radius: var(--radius);
+      padding: var(--s-3);
+    }
+    .notice-ok {
+      color: var(--ok);
+      border-left-color: var(--ok);
+    }
+    .notice-bad {
+      color: var(--bad);
+      border-left-color: var(--bad);
     }
     .grid {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: var(--space-4);
+      gap: var(--s-4);
     }
     @media (max-width: 1024px) {
       .grid {

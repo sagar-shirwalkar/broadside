@@ -1,10 +1,9 @@
 import { LitElement, css, html } from "lit";
 import { customElement, property } from "lit/decorators.js";
-import "@shoelace-style/shoelace/dist/components/card/card.js";
 
 /**
- * KPI card: large value, label, chip icon, sparkline of the last N points,
- * and an optional delta badge versus a previous run.
+ * KPI card: mono label, large tabular value, sparkline of the last N
+ * points, and an optional delta (glyph + %) versus a previous run.
  */
 @customElement("broadside-kpi-card")
 export class KpiCard extends LitElement {
@@ -13,13 +12,11 @@ export class KpiCard extends LitElement {
   @property() hint = "";
   /** Sparkline points, oldest first. */
   @property({ type: Array }) spark: number[] = [];
-  /** Signed percent change vs. the previous run (e.g. 12.5 = ↑12.5%). */
+  /** Signed percent change vs. the previous run; null hides the delta. */
   @property({ type: Number }) delta: number | null = null;
-  /** Semantic colors for the delta arrow. */
   @property() deltaTone: "good" | "bad" = "good";
-  /** Pastel chip color. */
   @property() chip: "peach" | "blush" | "mint" = "mint";
-  @property() icon = "activity";
+  @property() icon = "●";
 
   private sparkPath(): string {
     const data = this.spark;
@@ -47,16 +44,14 @@ export class KpiCard extends LitElement {
     const path = this.sparkPath();
     const delta = this.delta;
     return html`
-      <sl-card class="card">
+      <div class="card">
         <div class="top">
-          <span class="chip chip-${this.chip}">
-            <sl-icon name=${this.icon} label=${this.label}></sl-icon>
-          </span>
+          <span class="chip chip-${this.chip}" aria-hidden="true">${this.icon}</span>
           <span class="label">${this.label}</span>
           ${delta === null
             ? ""
             : html`<span class="delta delta-${this.deltaTone}">
-                ${delta > 0 ? "↑" : delta < 0 ? "↓" : "→"}
+                ${delta > 0 ? "▲" : delta < 0 ? "▼" : "→"}
                 ${Math.abs(delta).toFixed(1)}%
               </span>`}
         </div>
@@ -72,31 +67,48 @@ export class KpiCard extends LitElement {
               >
                 <path d=${path} class="spark-line" />
               </svg>`
-            : ""}
+            : this.spark.length === 1
+              ? html`<svg
+                class="spark"
+                viewBox="0 0 120 32"
+                preserveAspectRatio="none"
+                aria-hidden="true"
+              >
+                <circle cx="60" cy="16" r="3.5" class="spark-dot" />
+              </svg>`
+              : ""}
         </div>
-      </sl-card>
+      </div>
     `;
   }
 
   static styles = css`
     .card {
-      display: block;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: var(--s-5);
       height: 100%;
+      box-sizing: border-box;
+      transition: border-color var(--dur-fast) var(--ease);
+    }
+    .card:hover {
+      border-color: var(--rule-2);
     }
     .top {
       display: flex;
       align-items: center;
-      gap: var(--space-2);
-      margin-bottom: var(--space-2);
+      gap: var(--s-2);
+      margin-bottom: var(--s-2);
     }
     .chip {
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      width: 36px;
-      height: 36px;
-      border-radius: 10px;
-      font-size: 18px;
+      width: 28px;
+      height: 28px;
+      border-radius: 8px;
+      font-size: var(--step--1);
       flex: none;
     }
     .chip-peach {
@@ -109,35 +121,47 @@ export class KpiCard extends LitElement {
       background: var(--chip-mint);
     }
     .label {
-      font-size: var(--text-sm);
-      color: var(--text-muted);
+      font-size: var(--step--1);
+      font-family: var(--font-mono);
+      color: var(--text-dim);
+      letter-spacing: 0.04em;
+      text-transform: lowercase;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
     .delta {
       margin-left: auto;
-      font-size: var(--text-xs);
-      font-weight: 600;
+      font-size: var(--step--1);
+      font-family: var(--font-mono);
     }
     .delta-good {
-      color: var(--success);
+      color: var(--ok);
     }
     .delta-bad {
-      color: var(--danger);
+      color: var(--bad);
     }
     .value {
-      font-size: var(--text-xl);
-      font-weight: 650;
+      font-size: var(--step-3);
+      font-weight: 600;
+      letter-spacing: -0.02em;
       font-variant-numeric: tabular-nums;
     }
     .bottom {
       display: flex;
       align-items: flex-end;
       justify-content: space-between;
-      gap: var(--space-3);
-      margin-top: var(--space-2);
+      gap: var(--s-3);
+      margin-top: var(--s-2);
+      min-height: 32px;
     }
     .hint {
-      font-size: var(--text-xs);
-      color: var(--text-faint);
+      font-size: var(--step--1);
+      font-family: var(--font-mono);
+      color: var(--mute-2);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
     .spark {
       width: 120px;
@@ -148,7 +172,12 @@ export class KpiCard extends LitElement {
       fill: none;
       stroke: var(--chart-line-1);
       stroke-width: 2;
+      stroke-linejoin: round;
+      stroke-linecap: round;
       vector-effect: non-scaling-stroke;
+    }
+    .spark-dot {
+      fill: var(--chart-line-1);
     }
   `;
 }

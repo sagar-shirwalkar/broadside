@@ -1,9 +1,5 @@
 import { LitElement, css, html } from "lit";
 import { customElement, state } from "lit/decorators.js";
-import "@shoelace-style/shoelace/dist/components/card/card.js";
-import "@shoelace-style/shoelace/dist/components/input/input.js";
-import "@shoelace-style/shoelace/dist/components/button/button.js";
-import "@shoelace-style/shoelace/dist/components/alert/alert.js";
 import { api, ApiError, setToken } from "../api.js";
 
 /**
@@ -19,7 +15,7 @@ export class Login extends LitElement {
   private async submit() {
     const token = this.token.trim();
     if (!token) {
-      this.error = "Enter the API token";
+      this.error = "enter the API token";
       return;
     }
     this.error = null;
@@ -38,8 +34,8 @@ export class Login extends LitElement {
     } catch (err) {
       this.error =
         err instanceof ApiError && err.status === 401
-          ? "That token was rejected. Try again."
-          : "Could not reach the server.";
+          ? "that token was rejected. try again."
+          : "could not reach the server.";
     } finally {
       this.submitting = false;
     }
@@ -48,42 +44,41 @@ export class Login extends LitElement {
   override render() {
     return html`
       <main class="page">
-        <sl-card class="card">
+        <section class="card">
           <div class="brand">
-            <img src="/favicon.svg" alt="" width="44" height="44" />
+            <span class="brand-dot" aria-hidden="true"></span>
             <h1>Broadside</h1>
-            <p class="sub">Artillery run dashboard</p>
+            <p class="sub">artillery run dashboard</p>
           </div>
           ${this.error
-            ? html`<sl-alert variant="danger" open>
-                <sl-icon slot="icon" name="exclamation-triangle"></sl-icon>
-                ${this.error}
-              </sl-alert>`
+            ? html`<p class="warn">⚠ ${this.error}</p>`
             : ""}
-          <sl-input
-            label="API token"
-            type="password"
-            autocomplete="current-password"
-            .value=${this.token}
-            @sl-input=${(e: Event) => {
-              this.token = (e.target as HTMLInputElement).value;
-            }}
-            @keydown=${(e: KeyboardEvent) => {
-              if (e.key === "Enter") void this.submit();
-            }}
-          ></sl-input>
-          <sl-button
-            variant="primary"
-            class="submit"
-            ?loading=${this.submitting}
+          <label class="field">
+            api token
+            <input
+              class="input"
+              type="password"
+              autocomplete="current-password"
+              .value=${this.token}
+              @input=${(e: Event) => {
+                this.token = (e.target as HTMLInputElement).value;
+              }}
+              @keydown=${(e: KeyboardEvent) => {
+                if (e.key === "Enter") void this.submit();
+              }}
+            />
+          </label>
+          <button
+            class="btn primary"
+            ?disabled=${this.submitting}
             @click=${() => void this.submit()}
           >
-            Sign in
-          </sl-button>
+            sign in →
+          </button>
           <footer class="foot">
-            <span>Powered by Artillery</span>
+            <span>powered by artillery</span>
           </footer>
-        </sl-card>
+        </section>
       </main>
     `;
   }
@@ -93,47 +88,98 @@ export class Login extends LitElement {
       min-height: 100vh;
       display: grid;
       place-items: center;
-      padding: var(--space-6);
-      background:
-        radial-gradient(
-          60% 50% at 50% 0%,
-          var(--brand-soft) 0%,
-          transparent 100%
-        ),
-        var(--bg);
+      padding: var(--s-6) var(--s-5);
+      animation: fade-up var(--dur-slow) var(--ease);
     }
     .card {
       width: min(380px, 100%);
-    }
-    .card::part(base) {
-      padding: var(--space-6);
-      box-shadow: var(--shadow-card);
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: var(--s-6);
     }
     .brand {
       text-align: center;
-      margin-bottom: var(--space-5);
+      margin-bottom: var(--s-5);
+    }
+    .brand-dot {
+      display: inline-block;
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--amber);
+      box-shadow: 0 0 12px var(--amber);
     }
     h1 {
-      margin: var(--space-2) 0 0;
-      font-size: var(--text-xl);
+      margin: var(--s-3) 0 0;
+      font-size: var(--step-3);
+      font-weight: 500;
+      letter-spacing: -0.035em;
     }
     .sub {
-      margin: 2px 0 0;
-      color: var(--text-muted);
-      font-size: var(--text-sm);
+      margin: 4px 0 0;
+      color: var(--text-dim);
+      font-family: var(--font-mono);
+      font-size: var(--step--1);
     }
-    sl-alert {
-      margin-bottom: var(--space-4);
+    .warn {
+      color: var(--warn);
+      font-family: var(--font-mono);
+      font-size: var(--step--1);
+      margin: 0 0 var(--s-4);
     }
-    .submit {
+    .field {
+      display: block;
+      font-family: var(--font-mono);
+      font-size: var(--step--1);
+      color: var(--mute);
+      margin-bottom: var(--s-4);
+    }
+    .input {
+      display: block;
       width: 100%;
-      margin-top: var(--space-4);
+      margin-top: var(--s-1);
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--text);
+      font-family: var(--font-mono);
+      font-size: var(--step-0);
+      padding: var(--s-2) var(--s-3);
+      outline: none;
+      box-sizing: border-box;
+      transition: border-color var(--dur-fast) var(--ease);
+    }
+    .input:focus {
+      border-color: var(--amber-dim);
+    }
+    .btn {
+      font-family: var(--font-mono);
+      font-size: var(--step-0);
+      width: 100%;
+      padding: var(--s-3) var(--s-5);
+      border-radius: var(--radius);
+      cursor: pointer;
+      transition: all var(--dur-fast) var(--ease);
+    }
+    .btn.primary {
+      background: var(--amber);
+      border: 1px solid var(--amber);
+      color: var(--ink);
+    }
+    .btn.primary:hover:not(:disabled) {
+      background: var(--amber-dim);
+    }
+    .btn:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
     }
     .foot {
-      margin-top: var(--space-6);
+      margin-top: var(--s-6);
       text-align: center;
-      font-size: var(--text-xs);
-      color: var(--text-faint);
+      font-family: var(--font-mono);
+      font-size: var(--step--1);
+      color: var(--mute-2);
     }
   `;
 }

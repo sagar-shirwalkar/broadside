@@ -163,17 +163,8 @@ test("login: a 401 shows the login page and a token unlocks the app", async ({
   await expect(page.locator("broadside-login")).toBeVisible();
   await expect(page.locator("broadside-login")).toContainText("Broadside");
 
-  // Shoelace inputs are shadow DOM; set the value and fire the event.
-  // (Playwright locators pierce the open shadow roots of app + login.)
-  await page
-    .locator("broadside-login sl-input")
-    .evaluate((el) => {
-      (el as HTMLInputElement).value = "test-token";
-      el.dispatchEvent(
-        new Event("sl-input", { bubbles: true, composed: true }),
-      );
-    });
-  await page.locator("broadside-login sl-button").click();
+  await page.locator("broadside-login input.input").fill("test-token");
+  await page.locator("broadside-login .btn").click();
 
   await expect(page.locator("broadside-run-list")).toBeVisible();
   await expect(page.locator("broadside-run-list")).toContainText("run-1");
@@ -193,8 +184,14 @@ test("run detail shows KPI cards and charts", async ({ page }) => {
   await page.goto("#/runs/run-1-aaaa");
 
   await expect(page.locator("broadside-kpi-card")).toHaveCount(6);
-  await expect(page.locator("broadside-run-detail")).toContainText("Total Requests");
+  await expect(page.locator("broadside-run-detail")).toContainText("total requests");
   await expect(page.locator("broadside-line-chart")).toHaveCount(4);
+  // Chart renders real SVG paths (not HTML-namespace lookalikes).
+  const pathNs = await page
+    .locator("broadside-line-chart path")
+    .first()
+    .evaluate((el) => el.namespaceURI);
+  expect(pathNs).toBe("http://www.w3.org/2000/svg");
 });
 
 test("detail of an unknown run shows the not-found view", async ({ page }) => {
@@ -212,7 +209,7 @@ test("live view streams points and shows the completion banner", async ({
   await page.goto("#/runs/run-2-bbbb/live");
 
   await expect(page.locator("broadside-live-view")).toContainText("completed");
-  await expect(page.locator("broadside-live-view")).toContainText("View full report");
+  await expect(page.locator("broadside-live-view")).toContainText("view full report");
 });
 
 test("compare: selecting two runs renders charts and a KPI table", async ({
@@ -221,11 +218,11 @@ test("compare: selecting two runs renders charts and a KPI table", async ({
   await signIn(page);
   await page.goto("#/compare");
 
-  const boxes = page.locator("broadside-compare-view sl-checkbox");
+  const boxes = page.locator("broadside-compare-view input[type='checkbox']");
   await expect(boxes).toHaveCount(2);
-  await boxes.first().click();
-  await boxes.nth(1).click();
-  await page.locator("broadside-compare-view sl-button").click();
+  await boxes.first().check();
+  await boxes.nth(1).check();
+  await page.locator("broadside-compare-view .btn.primary").click();
 
   await expect(page.locator("broadside-compare-view table tbody tr")).toHaveCount(2);
   await expect(page.locator("broadside-line-chart")).toHaveCount(3);
@@ -238,13 +235,13 @@ test("kill: confirming on a running run deletes and returns to the list", async 
   await page.goto("#/runs/run-2-bbbb");
 
   await page
-    .locator("broadside-run-detail sl-button:visible")
-    .filter({ hasText: "Kill" })
+    .locator("broadside-run-detail button:visible")
+    .filter({ hasText: "kill" })
     .click();
-  await expect(page.locator("broadside-confirm-dialog")).toContainText("Kill run?");
+  await expect(page.locator("broadside-confirm-dialog")).toContainText("kill run?");
   await page
-    .locator("broadside-confirm-dialog sl-button")
-    .getByText("Kill", { exact: true })
+    .locator("broadside-confirm-dialog .btn.danger")
+    .getByText("kill", { exact: true })
     .click();
 
   await expect.poll(() => page.url()).toBe("http://localhost:5173/#/");
@@ -256,22 +253,12 @@ test("new run: the dialog submits and navigates to the live view", async ({
 }) => {
   await signIn(page);
 
-  await page.locator("broadside-run-list sl-button", { hasText: "New Run" }).click();
-  const dialog = page.locator("broadside-trigger-dialog sl-dialog");
-  await expect(dialog).toBeVisible();
+  await page.locator("broadside-run-list .btn.primary", { hasText: "new run" }).click();
+  const sheet = page.locator("broadside-trigger-dialog .sheet");
+  await expect(sheet).toBeVisible();
 
-  await page
-    .locator("broadside-trigger-dialog sl-input")
-    .first()
-    .evaluate((el) => {
-      (el as HTMLInputElement).value = "./load-test.yml";
-      el.dispatchEvent(
-        new Event("sl-input", { bubbles: true, composed: true }),
-      );
-    });
-  await page
-    .locator("broadside-trigger-dialog sl-button", { hasText: "Start run" })
-    .click();
+  await page.locator("broadside-trigger-dialog input.input").first().fill("./load-test.yml");
+  await sheet.locator("button", { hasText: "start run" }).click();
 
   await expect.poll(() => page.url()).toContain("#/runs/run-new-cccc/live");
 });

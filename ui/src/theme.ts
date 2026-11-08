@@ -1,6 +1,9 @@
-/** Theme handling. Shoelace components read CSS variables, so toggling the
- *  `sl-theme-dark` class (plus our own tokens in theme.css via
- *  `data-theme`) re-colors everything, including the SVG charts. */
+/**
+ * Theme handling. Dark is the default; a stored choice wins, otherwise we
+ * follow prefers-color-scheme on first visit. The theme is a `data-theme`
+ * attribute on <html> — every color is a token, so switching re-colors
+ * everything (including rendered SVG paths) without re-rendering.
+ */
 
 const THEME_KEY = "broadside.theme";
 
@@ -15,14 +18,9 @@ export function currentTheme(): Theme {
 export function applyTheme(theme: Theme): void {
   const root = document.documentElement;
   root.dataset.theme = theme;
-  // Shoelace's dark theme stylesheet is keyed off this class.
-  root.classList.toggle("sl-theme-dark", theme === "dark");
   const meta = document.querySelector('meta[name="theme-color"]');
   if (meta) {
-    meta.setAttribute(
-      "content",
-      theme === "dark" ? "#1d1d20" : "#faf8f4",
-    );
+    meta.setAttribute("content", theme === "dark" ? "#0a0b0e" : "#fafaf7");
   }
 }
 
@@ -32,8 +30,12 @@ export function initTheme(): void {
     applyTheme(stored);
     return;
   }
-  const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-  applyTheme(prefersDark ? "dark" : "light");
+  // Dark-first: fall back to the OS preference only when there is no
+  // stored choice.
+  const prefersLight = window.matchMedia(
+    "(prefers-color-scheme: light)",
+  ).matches;
+  applyTheme(prefersLight ? "light" : "dark");
 }
 
 export function toggleTheme(): void {

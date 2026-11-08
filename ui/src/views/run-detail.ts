@@ -1,10 +1,5 @@
 import { LitElement, css, html } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
-import "@shoelace-style/shoelace/dist/components/button/button.js";
-import "@shoelace-style/shoelace/dist/components/badge/badge.js";
-import "@shoelace-style/shoelace/dist/components/select/select.js";
-import "@shoelace-style/shoelace/dist/components/option/option.js";
-import "@shoelace-style/shoelace/dist/components/icon/icon.js";
 import { api, apiGet, ApiError } from "../api.js";
 import type {
   ChartSeries,
@@ -18,7 +13,6 @@ import {
   formatMs,
   formatNumber,
   formatPercent,
-  formatRps,
 } from "../format.js";
 import { navigate } from "../router.js";
 import "../components/kpi-card.js";
@@ -237,52 +231,41 @@ export class RunDetail extends LitElement {
       <div class="page">
         <div class="header">
           <div class="title-block">
-            <sl-button variant="text" size="small" @click=${() => navigate("/")}>
-              <sl-icon slot="prefix" name="arrow-left"></sl-icon>
-              Runs
-            </sl-button>
-            <h1 class="mono">${run.id.slice(0, 8)}…</h1>
+            <button class="link-btn" @click=${() => navigate("/")}>
+              ← runs
+            </button>
+            <h1 class="mono">${run.id.slice(0, 8)}</h1>
             ${run.status === "running"
-              ? html`<sl-badge variant="success" class="pulse">running</sl-badge>`
+              ? html`<span class="status status-running pulse"><span class="dot" aria-hidden="true"></span>running</span>`
               : run.status === "failed"
-                ? html`<sl-badge variant="danger">failed</sl-badge>`
-                : html`<sl-badge variant="neutral">completed</sl-badge>`}
+                ? html`<span class="status status-failed">✕ failed</span>`
+                : html`<span class="status status-done">✓ completed</span>`}
           </div>
           <div class="header-actions">
-            <sl-button
-              size="small"
-              @click=${() => navigate(`/runs/${run.id}/live`)}
-            >
-              <sl-icon slot="prefix" name="broadcast"></sl-icon>
-              Live
-            </sl-button>
-            <sl-button
-              size="small"
-              variant="danger"
-              outline
-              @click=${() => (this.confirmOpen = true)}
-            >
-              <sl-icon slot="prefix" name="trash"></sl-icon>
-              ${run.status === "running" ? "Kill" : "Delete"}
-            </sl-button>
+            <button class="btn" @click=${() => navigate(`/runs/${run.id}/live`)}>
+              ● live
+            </button>
+            <button class="btn danger" @click=${() => (this.confirmOpen = true)}>
+              ${run.status === "running" ? "✕ kill" : "✕ delete"}
+            </button>
           </div>
         </div>
 
         <div class="kpis">
           <broadside-kpi-card
-            label="Total Requests"
+            label="total requests"
             .value=${formatNumber(run.total_requests)}
             .delta=${this.delta(run.total_requests, prev?.total_requests ?? null)}
             .deltaTone=${"good"}
             chip="mint"
-            icon="graph-up"
+            icon="●"
             .spark=${this.sparkOf((r) => (r.rps === null ? null : r.rps * 60))}
           ></broadside-kpi-card>
           <broadside-kpi-card
-            label="Duration"
+            label="duration"
             .value=${formatDuration(run.duration_ms)}
             chip="peach"
-            icon="clock"
+            icon="◷"
             hint=${new Date(run.started_at).toLocaleString()}
           ></broadside-kpi-card>
           <broadside-kpi-card
@@ -291,7 +274,7 @@ export class RunDetail extends LitElement {
             .delta=${this.delta(run.p50, prev?.p50 ?? null)}
             .deltaTone=${"good"}
             chip="mint"
-            icon="speedometer"
+            icon="◐"
             .spark=${this.sparkOf((r) => r.p50)}
           ></broadside-kpi-card>
           <broadside-kpi-card
@@ -300,7 +283,7 @@ export class RunDetail extends LitElement {
             .delta=${this.delta(run.p95, prev?.p95 ?? null)}
             .deltaTone=${"good"}
             chip="peach"
-            icon="speedometer"
+            icon="◐"
             .spark=${this.sparkOf((r) => r.p95)}
           ></broadside-kpi-card>
           <broadside-kpi-card
@@ -309,16 +292,16 @@ export class RunDetail extends LitElement {
             .delta=${this.delta(run.p99, prev?.p99 ?? null)}
             .deltaTone=${"good"}
             chip="blush"
-            icon="speedometer"
+            icon="◐"
             .spark=${this.sparkOf((r) => r.p99)}
           ></broadside-kpi-card>
           <broadside-kpi-card
-            label="Error Rate"
+            label="error rate"
             .value=${formatPercent(run.error_rate)}
             .delta=${this.delta(run.error_rate, prev?.error_rate ?? null)}
             .deltaTone=${"bad"}
             chip="blush"
-            icon="exclamation-triangle"
+            icon="⚠"
             .spark=${this.sparkOf((r) => r.error_rate)}
           ></broadside-kpi-card>
         </div>
@@ -329,27 +312,29 @@ export class RunDetail extends LitElement {
             .value=${this.endpoint}
             @endpoint-change=${this.onEndpointChange}
           ></broadside-endpoint-select>
-          <sl-select
-            size="small"
-            label="Granularity"
-            .value=${this.granularity}
-            @sl-change=${(e: Event) => {
-              this.granularity = (e.target as HTMLSelectElement)
-                .value as Granularity;
-              this.zoomByPanel = new Map();
-              this.rawByPanel = new Map();
-              void this.loadMetrics();
-            }}
-          >
-            <sl-option value="1m">1 minute</sl-option>
-            <sl-option value="1h">1 hour</sl-option>
-            <sl-option value="1d">1 day</sl-option>
-          </sl-select>
+          <label class="field">
+            <span class="label">granularity</span>
+            <select
+              class="select"
+              .value=${this.granularity}
+              @change=${(e: Event) => {
+                this.granularity = (e.target as HTMLSelectElement)
+                  .value as Granularity;
+                this.zoomByPanel = new Map();
+                this.rawByPanel = new Map();
+                void this.loadMetrics();
+              }}
+            >
+              <option value="1m">1 minute</option>
+              <option value="1h">1 hour</option>
+              <option value="1d">1 day</option>
+            </select>
+          </label>
         </div>
 
         <div class="grid">
           <broadside-chart-panel
-            title="Requests per second"
+            title="requests / second"
             .series=${this.seriesFor("rps")}
             yFormat="req/s"
             yLabel="req/s"
@@ -360,7 +345,7 @@ export class RunDetail extends LitElement {
             @reset-zoom=${() => this.resetZoom("rps")}
           ></broadside-chart-panel>
           <broadside-chart-panel
-            title="Latency percentiles"
+            title="latency percentiles"
             .series=${this.seriesFor("latency")}
             yFormat="ms"
             yLabel="ms"
@@ -370,7 +355,7 @@ export class RunDetail extends LitElement {
             @reset-zoom=${() => this.resetZoom("latency")}
           ></broadside-chart-panel>
           <broadside-chart-panel
-            title="Error rate"
+            title="error rate"
             .series=${this.seriesFor("errors")}
             yFormat="%"
             yLabel="%"
@@ -381,7 +366,7 @@ export class RunDetail extends LitElement {
             @reset-zoom=${() => this.resetZoom("errors")}
           ></broadside-chart-panel>
           <broadside-chart-panel
-            title="Throughput (req/min, rps × 60)"
+            title="throughput (req/min, rps × 60)"
             .series=${this.seriesFor("volume")}
             yFormat="count"
             yLabel="req/min"
@@ -396,11 +381,11 @@ export class RunDetail extends LitElement {
       <broadside-confirm-dialog
         .open=${this.confirmOpen}
         .busy=${this.confirmBusy}
-        .title=${run.status === "running" ? "Kill run?" : "Delete run?"}
+        .title=${run.status === "running" ? "kill run?" : "delete run?"}
         .body=${run.status === "running"
           ? "This will terminate the Artillery process. Partial data may be lost."
           : "This will permanently remove the run and all its metrics."}
-        .confirmLabel=${run.status === "running" ? "Kill" : "Delete"}
+        .confirmLabel=${run.status === "running" ? "kill" : "delete"}
         @close=${() => (this.confirmOpen = false)}
         @confirm=${() => void this.doDelete()}
       ></broadside-confirm-dialog>
@@ -411,51 +396,135 @@ export class RunDetail extends LitElement {
     .page {
       display: flex;
       flex-direction: column;
-      gap: var(--space-5);
+      gap: var(--s-5);
     }
     .header {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: var(--space-4);
+      gap: var(--s-4);
       flex-wrap: wrap;
     }
     .title-block {
       display: flex;
       align-items: center;
-      gap: var(--space-3);
+      gap: var(--s-3);
+    }
+    .link-btn {
+      background: transparent;
+      border: none;
+      color: var(--mute);
+      font-family: var(--font-mono);
+      font-size: var(--step--1);
+      cursor: pointer;
+      padding: 0;
+      transition: color var(--dur-fast) var(--ease);
+    }
+    .link-btn:hover {
+      color: var(--text);
     }
     h1 {
       margin: 0;
-      font-size: var(--text-xl);
+      font-size: var(--step-3);
+    }
+    .status {
+      font-family: var(--font-mono);
+      font-size: var(--step--1);
+      display: inline-flex;
+      align-items: center;
+      gap: var(--s-2);
+    }
+    .status .dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--ok);
+      box-shadow: 0 0 8px var(--ok);
+    }
+    .status-running {
+      color: var(--ok);
+    }
+    .status-failed {
+      color: var(--bad);
+    }
+    .status-done {
+      color: var(--mute);
+    }
+    .pulse {
+      animation: blink 1.6s infinite;
     }
     .header-actions {
       display: flex;
-      gap: var(--space-2);
+      gap: var(--s-2);
     }
-    .pulse {
-      animation: pulse 1.6s ease-in-out infinite;
+    .btn {
+      font-family: var(--font-mono);
+      font-size: var(--step-0);
+      padding: var(--s-1) var(--s-4);
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text);
+      cursor: pointer;
+      transition: all var(--dur-fast) var(--ease);
     }
-    @keyframes pulse {
-      50% {
-        opacity: 0.55;
-      }
+    .btn:hover:not(:disabled) {
+      border-color: var(--amber);
+      color: var(--amber);
+    }
+    .btn.danger:hover:not(:disabled) {
+      border-color: var(--bad);
+      color: var(--bad);
     }
     .kpis {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-      gap: var(--space-4);
+      gap: var(--s-4);
     }
     .filters {
       display: flex;
       align-items: flex-end;
-      gap: var(--space-4);
+      gap: var(--s-4);
       flex-wrap: wrap;
+    }
+    .field {
+      display: inline-flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .label {
+      font-family: var(--font-mono);
+      font-size: var(--step--1);
+      color: var(--mute);
+      letter-spacing: 0.04em;
+      text-transform: lowercase;
+    }
+    .select {
+      appearance: none;
+      min-width: 140px;
+      padding-right: 28px;
+      background: var(--surface)
+        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23a0a4ac' fill='none' stroke-width='1.5'/%3E%3C/svg%3E")
+        no-repeat right 10px center;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--text);
+      font-family: var(--font-mono);
+      font-size: var(--step--1);
+      padding-top: var(--s-2);
+      padding-bottom: var(--s-2);
+      padding-left: var(--s-3);
+      outline: none;
+      cursor: pointer;
+      transition: border-color var(--dur-fast) var(--ease);
+    }
+    .select:focus {
+      border-color: var(--amber-dim);
     }
     .grid {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: var(--space-4);
+      gap: var(--s-4);
     }
     @media (max-width: 1024px) {
       .grid {

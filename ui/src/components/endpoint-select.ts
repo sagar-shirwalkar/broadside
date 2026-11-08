@@ -1,22 +1,21 @@
 import { LitElement, css, html } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
-import "@shoelace-style/shoelace/dist/components/select/select.js";
-import "@shoelace-style/shoelace/dist/components/option/option.js";
 import { apiGet } from "../api.js";
 import type { EndpointRow } from "../types.js";
 
 export const ALL_ENDPOINTS = "";
 
 /**
- * Endpoint dropdown: "All (aggregate)" plus every endpoint seen in the run.
- * The parent owns the selected value; this control only reports changes.
+ * Endpoint dropdown: "All (aggregate)" plus every endpoint seen in the
+ * run. The parent owns the selected value; this control only reports
+ * changes. Native <select> in mono, styled per the design system.
  */
 @customElement("broadside-endpoint-select")
 export class EndpointSelect extends LitElement {
   @property() runId = "";
   /** "" = aggregate row. */
   @property() value: string = ALL_ENDPOINTS;
-  @property() label = "Endpoint";
+  @property() label = "endpoint";
 
   @state() private endpoints: EndpointRow[] = [];
   @state() private loading = false;
@@ -47,7 +46,7 @@ export class EndpointSelect extends LitElement {
   }
 
   private onChange(event: Event) {
-    const select = event.target as HTMLSelectElement & { value: string };
+    const select = event.target as HTMLSelectElement;
     this.dispatchEvent(
       new CustomEvent("endpoint-change", {
         detail: { endpoint: select.value },
@@ -59,23 +58,20 @@ export class EndpointSelect extends LitElement {
 
   override render() {
     return html`
-      <div class="field">
-        <label class="label" for="select">${this.label}</label>
-        <sl-select
-          id="select"
-          size="small"
+      <label class="field">
+        <span class="label">${this.label}</span>
+        <select
+          class="select"
           .value=${this.value}
-          ?loading=${this.loading}
-          @sl-change=${this.onChange}
+          ?disabled=${this.loading}
+          @change=${this.onChange}
         >
-          <sl-option value="">All (aggregate)</sl-option>
+          <option value="">all (aggregate)</option>
           ${this.endpoints.map(
-            (e) => html`<sl-option value=${e.endpoint}>
-              ${e.endpoint}
-            </sl-option>`,
+            (e) => html`<option value=${e.endpoint}>${e.endpoint}</option>`,
           )}
-        </sl-select>
-      </div>
+        </select>
+      </label>
     `;
   }
 
@@ -83,14 +79,40 @@ export class EndpointSelect extends LitElement {
     .field {
       display: inline-flex;
       flex-direction: column;
-      gap: 2px;
+      gap: 4px;
     }
     .label {
-      font-size: var(--text-xs);
-      color: var(--text-muted);
+      font-family: var(--font-mono);
+      font-size: var(--step--1);
+      color: var(--mute);
+      letter-spacing: 0.04em;
+      text-transform: lowercase;
     }
-    sl-select {
-      min-width: 180px;
+    .select {
+      appearance: none;
+      min-width: 200px;
+      padding-right: 28px;
+      background: var(--surface)
+        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23a0a4ac' fill='none' stroke-width='1.5'/%3E%3C/svg%3E")
+        no-repeat right 10px center;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--text);
+      font-family: var(--font-mono);
+      font-size: var(--step--1);
+      padding-top: var(--s-2);
+      padding-bottom: var(--s-2);
+      padding-left: var(--s-3);
+      outline: none;
+      cursor: pointer;
+      transition: border-color var(--dur-fast) var(--ease);
+    }
+    .select:focus {
+      border-color: var(--amber-dim);
+    }
+    .select:disabled {
+      opacity: 0.5;
+      cursor: wait;
     }
   `;
 }

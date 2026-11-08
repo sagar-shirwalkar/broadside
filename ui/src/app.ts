@@ -1,9 +1,6 @@
 import { LitElement, css, html } from "lit";
 import { customElement, state } from "lit/decorators.js";
 import { keyed } from "lit/directives/keyed.js";
-import "@shoelace-style/shoelace/dist/components/button/button.js";
-import "@shoelace-style/shoelace/dist/components/icon/icon.js";
-import "@shoelace-style/shoelace/dist/components/spinner/spinner.js";
 import { navigate, parseHash, type Route } from "./router.js";
 import { UNAUTHORIZED_EVENT } from "./api.js";
 import { currentTheme, toggleTheme } from "./theme.js";
@@ -17,9 +14,10 @@ import "./views/compare-view.js";
 import "./views/not-found.js";
 
 /**
- * App shell: sidebar (nav + health indicator + theme toggle) and the main
- * content area, switched by the hash router. Shows the login view when the
- * API answers 401 (API_TOKEN set, no/invalid token stored).
+ * App shell: sidebar (brand, mono nav, health indicator, theme glyph)
+ * and the main content area, switched by the hash router. Shows the
+ * login view when the API answers 401 (API_TOKEN set, no/invalid token
+ * stored). Dark-first, krivostr instrument styling.
  */
 @customElement("broadside-app")
 export class App extends LitElement {
@@ -89,13 +87,13 @@ export class App extends LitElement {
       ></broadside-login>`;
     }
 
-    const theme = currentTheme();
+    const dark = currentTheme() === "dark";
 
     return html`
       <div class="shell">
         <aside class="sidebar ${this.sidebarOpen ? "open" : ""}">
           <div class="brand">
-            <img src="/favicon.svg" alt="" width="30" height="30" />
+            <span class="brand-dot" aria-hidden="true"></span>
             <span class="brand-name">Broadside</span>
           </div>
           <nav>
@@ -107,7 +105,7 @@ export class App extends LitElement {
                 navigate("/");
               }}
             >
-              <sl-icon name="list"></sl-icon> Runs
+              <span class="glyph" aria-hidden="true">▤</span> Runs
             </a>
             <a
               class=${this.navClass("compare")}
@@ -117,21 +115,19 @@ export class App extends LitElement {
                 navigate("/compare");
               }}
             >
-              <sl-icon name="graph-up"></sl-icon> Compare
+              <span class="glyph" aria-hidden="true">◈</span> Compare
             </a>
           </nav>
           <div class="sidebar-foot">
             <broadside-health-badge></broadside-health-badge>
-            <sl-button
-              variant="text"
-              size="small"
+            <button
+              class="theme-btn"
               @click=${toggleTheme}
+              title=${dark ? "switch to light (☼)" : "switch to dark (☽)"}
+              aria-label="Toggle theme"
             >
-              <sl-icon
-                name=${theme === "dark" ? "sun" : "moon-stars"}
-                label="Toggle theme"
-              ></sl-icon>
-            </sl-button>
+              <span class="glyph" aria-hidden="true">${dark ? "☽" : "☼"}</span>
+            </button>
           </div>
         </aside>
         ${this.sidebarOpen
@@ -142,15 +138,14 @@ export class App extends LitElement {
           : ""}
         <main class="main">
           <header class="topbar">
-            <sl-button
-              variant="text"
-              size="small"
+            <button
               class="hamburger"
               @click=${() => (this.sidebarOpen = !this.sidebarOpen)}
+              aria-label="Menu"
             >
-              <sl-icon name="list" label="Menu"></sl-icon>
-            </sl-button>
-            <span class="topbar-title">Artillery runs</span>
+              <span class="glyph" aria-hidden="true">≡</span>
+            </button>
+            <span class="topbar-title">artillery runs</span>
           </header>
           <section
             class="content"
@@ -182,10 +177,10 @@ export class App extends LitElement {
       min-height: 100vh;
     }
     .sidebar {
-      width: 220px;
+      width: 216px;
       flex: none;
-      background: var(--sidebar-bg);
-      border-right: 1px solid var(--border);
+      background: var(--ink-2);
+      border-right: 1px solid var(--rule);
       display: flex;
       flex-direction: column;
       position: sticky;
@@ -196,33 +191,49 @@ export class App extends LitElement {
     .brand {
       display: flex;
       align-items: center;
-      gap: var(--space-3);
-      padding: var(--space-5) var(--space-4) var(--space-4);
+      gap: var(--s-3);
+      padding: var(--s-5) var(--s-4) var(--s-4);
+      font-family: var(--font-mono);
+      font-size: var(--step-0);
+      color: var(--text);
+    }
+    .brand-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--amber);
+      box-shadow: 0 0 12px var(--amber);
+      flex: none;
     }
     .brand-name {
-      font-size: var(--text-lg);
-      font-weight: 650;
-      letter-spacing: -0.01em;
+      font-weight: 500;
+      letter-spacing: 0.02em;
     }
     nav {
       display: flex;
       flex-direction: column;
-      gap: 4px;
-      padding: 0 var(--space-2);
+      gap: var(--s-1);
+      padding: var(--s-2) var(--s-3);
+    }
+    .glyph {
+      font-family: var(--font-mono);
+      font-size: var(--step--1);
     }
     .nav-item {
       display: flex;
       align-items: center;
-      gap: var(--space-3);
-      padding: 10px var(--space-3);
-      border-radius: 10px;
-      color: var(--text-muted);
+      gap: var(--s-3);
+      padding: 9px var(--s-3);
+      border-radius: var(--radius);
+      color: var(--text-dim);
       text-decoration: none;
-      font-size: var(--text-sm);
-      font-weight: 500;
+      font-family: var(--font-mono);
+      font-size: var(--step--1);
+      transition: all var(--dur-fast) var(--ease);
+      border: 1px solid transparent;
     }
     .nav-item:hover {
-      background: var(--surface-hover);
+      background: var(--surface-2);
       color: var(--text);
     }
     .nav-item.active {
@@ -234,8 +245,29 @@ export class App extends LitElement {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: var(--space-4);
-      border-top: 1px solid var(--border);
+      padding: var(--s-4);
+      border-top: 1px solid var(--rule);
+    }
+    .theme-btn,
+    .hamburger {
+      background: transparent;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--mute);
+      font-family: var(--font-mono);
+      font-size: var(--step-0);
+      width: 34px;
+      height: 34px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: all var(--dur-fast) var(--ease);
+    }
+    .theme-btn:hover,
+    .hamburger:hover {
+      color: var(--text);
+      border-color: var(--amber-dim);
     }
     .main {
       flex: 1;
@@ -246,28 +278,28 @@ export class App extends LitElement {
     .topbar {
       display: flex;
       align-items: center;
-      gap: var(--space-2);
-      padding: var(--space-3) var(--space-5);
-      border-bottom: 1px solid var(--border);
+      gap: var(--s-3);
+      padding: var(--s-3) var(--s-5);
+      border-bottom: 1px solid var(--rule);
       position: sticky;
       top: 0;
-      background: var(--bg);
+      background: color-mix(in oklab, var(--bg) 85%, transparent);
+      backdrop-filter: blur(12px);
       z-index: 5;
+      font-family: var(--font-mono);
+      font-size: var(--step--1);
+      color: var(--mute);
     }
     .hamburger {
       display: none;
     }
-    .topbar-title {
-      font-size: var(--text-sm);
-      color: var(--text-muted);
-      font-weight: 500;
-    }
     .content {
-      padding: var(--space-5);
+      padding: var(--s-6) var(--s-5);
       max-width: 1440px;
       width: 100%;
       box-sizing: border-box;
       margin: 0 auto;
+      animation: fade-up var(--dur-slow) var(--ease);
     }
     .scrim {
       display: none;
@@ -284,7 +316,7 @@ export class App extends LitElement {
         transform: none;
       }
       .hamburger {
-        display: inline-block;
+        display: inline-flex;
       }
       .scrim {
         display: block;
