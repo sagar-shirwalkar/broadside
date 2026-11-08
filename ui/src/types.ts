@@ -25,6 +25,17 @@ export interface MetricRow {
   p99: number | null;
   error_rate: number | null;
   samples: number;
+  /** Per-bucket VU counter deltas (2.31 CAGG sums them per bucket). */
+  vusers_started: number | string | null;
+  vusers_stopped: number | string | null;
+  vusers_created: number | string | null;
+  vusers_completed: number | string | null;
+  error_count: number | string | null;
+  hist_min: number | null;
+  hist_max: number | null;
+  hist_p75: number | null;
+  hist_p90: number | null;
+  hist_p999: number | null;
 }
 
 export interface RawRow {
@@ -35,6 +46,16 @@ export interface RawRow {
   p95: number | null;
   p99: number | null;
   error_rate: number | null;
+  vusers_started: number | string | null;
+  vusers_stopped: number | string | null;
+  vusers_created: number | string | null;
+  vusers_completed: number | string | null;
+  error_count: number | string | null;
+  hist_min: number | null;
+  hist_max: number | null;
+  hist_p75: number | null;
+  hist_p90: number | null;
+  hist_p999: number | null;
 }
 
 export interface EndpointRow {
@@ -55,6 +76,12 @@ export interface HealthResponse {
   timestamp: string;
 }
 
+export interface PhaseAnnotation {
+  start: string;
+  end: string | null;
+  name: string;
+}
+
 export type Granularity = "1m" | "1h" | "1d";
 
 export interface ChartPoint {
@@ -67,4 +94,25 @@ export interface ChartSeries {
   /** 1-based index into the --chart-line-N custom properties. */
   colorIndex: number;
   points: ChartPoint[];
+}
+
+/** Bigints arrive from postgres.js as strings; coerce defensively. */
+export function num(value: number | string | null | undefined): number | null {
+  if (value === null || value === undefined) return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+/** Cumulative sum of a series of nullable counts, in time order. */
+export function cumulative(
+  rows: Array<{ time: number; value: number | null }>,
+): ChartPoint[] {
+  const out: ChartPoint[] = [];
+  let acc = 0;
+  for (const row of rows) {
+    if (row.value === null) continue;
+    acc += row.value;
+    out.push({ time: row.time, value: acc });
+  }
+  return out;
 }

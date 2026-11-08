@@ -11,7 +11,31 @@ export function normalizePoint(raw: Record<string, unknown>): MetricPoint {
     p95: Number(raw.p95 ?? 0),
     p99: Number(raw.p99 ?? 0),
     errorRate: Number(raw.error_rate ?? raw.errorRate ?? 0),
+    vusersStarted: optionalNumber(
+      raw.vusers_started ?? raw.vusersStarted,
+    ),
+    vusersStopped: optionalNumber(
+      raw.vusers_stopped ?? raw.vusersStopped,
+    ),
+    vusersCreated: optionalNumber(
+      raw.vusers_created ?? raw.vusersCreated,
+    ),
+    vusersCompleted: optionalNumber(
+      raw.vusers_completed ?? raw.vusersCompleted,
+    ),
+    errorCount: optionalNumber(raw.error_count ?? raw.errorCount),
+    histMin: optionalNumber(raw.hist_min ?? raw.histMin),
+    histMax: optionalNumber(raw.hist_max ?? raw.histMax),
+    histP75: optionalNumber(raw.hist_p75 ?? raw.histP75),
+    histP90: optionalNumber(raw.hist_p90 ?? raw.histP90),
+    histP999: optionalNumber(raw.hist_p999 ?? raw.histP999),
   };
+}
+
+function optionalNumber(value: unknown): number | undefined {
+  if (value === undefined || value === null) return undefined;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : undefined;
 }
 
 /** Normalize a batch message (may contain single point or array). */

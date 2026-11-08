@@ -65,6 +65,16 @@ export class MetricsFlusher {
           p95: p.p95,
           p99: p.p99,
           error_rate: p.errorRate,
+          vusers_started: p.vusersStarted ?? null,
+          vusers_stopped: p.vusersStopped ?? null,
+          vusers_created: p.vusersCreated ?? null,
+          vusers_completed: p.vusersCompleted ?? null,
+          error_count: p.errorCount ?? null,
+          hist_min: p.histMin ?? null,
+          hist_max: p.histMax ?? null,
+          hist_p75: p.histP75 ?? null,
+          hist_p90: p.histP90 ?? null,
+          hist_p999: p.histP999 ?? null,
         })))}
       `;
       this.totalFlushed += batch.length;

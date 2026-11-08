@@ -2,15 +2,40 @@ CREATE EXTENSION IF NOT EXISTS timescaledb;
 
 -- Raw hypertable
 CREATE TABLE IF NOT EXISTS metrics (
-  time        TIMESTAMPTZ NOT NULL,
-  run_id      TEXT NOT NULL,
-  endpoint    TEXT,
-  rps         DOUBLE PRECISION,
-  p50         DOUBLE PRECISION,
-  p95         DOUBLE PRECISION,
-  p99         DOUBLE PRECISION,
-  error_rate  DOUBLE PRECISION
+  time             TIMESTAMPTZ NOT NULL,
+  run_id           TEXT NOT NULL,
+  endpoint         TEXT,
+  rps              DOUBLE PRECISION,
+  p50              DOUBLE PRECISION,
+  p95              DOUBLE PRECISION,
+  p99              DOUBLE PRECISION,
+  error_rate       DOUBLE PRECISION,
+  -- Per-bucket VU counters (deltas within the interval). Summed by the
+  -- CAGGs so the UI can derive cumulative VUsers-active/error-count.
+  vusers_started   BIGINT,
+  vusers_stopped   BIGINT,
+  vusers_created   BIGINT,
+  vusers_completed BIGINT,
+  error_count      BIGINT,
+  -- Raw response-time histogram quantiles (for CDF/histogram charts).
+  hist_min         DOUBLE PRECISION,
+  hist_max         DOUBLE PRECISION,
+  hist_p75         DOUBLE PRECISION,
+  hist_p90         DOUBLE PRECISION,
+  hist_p999        DOUBLE PRECISION
 );
+
+-- Existing volumes picked up before the columns existed: upgrade in place.
+ALTER TABLE metrics ADD COLUMN IF NOT EXISTS vusers_started   BIGINT;
+ALTER TABLE metrics ADD COLUMN IF NOT EXISTS vusers_stopped   BIGINT;
+ALTER TABLE metrics ADD COLUMN IF NOT EXISTS vusers_created   BIGINT;
+ALTER TABLE metrics ADD COLUMN IF NOT EXISTS vusers_completed BIGINT;
+ALTER TABLE metrics ADD COLUMN IF NOT EXISTS error_count      BIGINT;
+ALTER TABLE metrics ADD COLUMN IF NOT EXISTS hist_min         DOUBLE PRECISION;
+ALTER TABLE metrics ADD COLUMN IF NOT EXISTS hist_max         DOUBLE PRECISION;
+ALTER TABLE metrics ADD COLUMN IF NOT EXISTS hist_p75         DOUBLE PRECISION;
+ALTER TABLE metrics ADD COLUMN IF NOT EXISTS hist_p90         DOUBLE PRECISION;
+ALTER TABLE metrics ADD COLUMN IF NOT EXISTS hist_p999        DOUBLE PRECISION;
 
 SELECT create_hypertable('metrics', 'time',
   chunk_time_interval => INTERVAL '1 day',
@@ -48,9 +73,19 @@ SELECT
   endpoint,
   avg(rps)        AS rps,
   percentile_cont(0.50) WITHIN GROUP (ORDER BY p50)  AS p50,
+  percentile_cont(0.75) WITHIN GROUP (ORDER BY hist_p75) AS hist_p75,
+  percentile_cont(0.90) WITHIN GROUP (ORDER BY hist_p90) AS hist_p90,
   percentile_cont(0.95) WITHIN GROUP (ORDER BY p95)  AS p95,
   percentile_cont(0.99) WITHIN GROUP (ORDER BY p99)  AS p99,
+  percentile_cont(0.999) WITHIN GROUP (ORDER BY hist_p999) AS hist_p999,
+  min(hist_min) AS hist_min,
+  max(hist_max) AS hist_max,
   avg(error_rate) AS error_rate,
+  sum(vusers_started)   AS vusers_started,
+  sum(vusers_stopped)   AS vusers_stopped,
+  sum(vusers_created)   AS vusers_created,
+  sum(vusers_completed) AS vusers_completed,
+  sum(error_count)      AS error_count,
   count(*)        AS samples
 FROM metrics
 GROUP BY 1, 2, 3
@@ -64,9 +99,19 @@ SELECT
   endpoint,
   avg(rps)        AS rps,
   avg(p50)        AS p50,
+  avg(hist_p75)   AS hist_p75,
+  avg(hist_p90)   AS hist_p90,
   avg(p95)        AS p95,
   avg(p99)        AS p99,
+  avg(hist_p999)  AS hist_p999,
+  min(hist_min)   AS hist_min,
+  max(hist_max)   AS hist_max,
   avg(error_rate) AS error_rate,
+  sum(vusers_started)   AS vusers_started,
+  sum(vusers_stopped)   AS vusers_stopped,
+  sum(vusers_created)   AS vusers_created,
+  sum(vusers_completed) AS vusers_completed,
+  sum(error_count)      AS error_count,
   sum(samples)    AS samples
 FROM metrics_1m
 GROUP BY 1, 2, 3
@@ -80,9 +125,19 @@ SELECT
   endpoint,
   avg(rps)        AS rps,
   avg(p50)        AS p50,
+  avg(hist_p75)   AS hist_p75,
+  avg(hist_p90)   AS hist_p90,
   avg(p95)        AS p95,
   avg(p99)        AS p99,
+  avg(hist_p999)  AS hist_p999,
+  min(hist_min)   AS hist_min,
+  max(hist_max)   AS hist_max,
   avg(error_rate) AS error_rate,
+  sum(vusers_started)   AS vusers_started,
+  sum(vusers_stopped)   AS vusers_stopped,
+  sum(vusers_created)   AS vusers_created,
+  sum(vusers_completed) AS vusers_completed,
+  sum(error_count)      AS error_count,
   sum(samples)    AS samples
 FROM metrics_1h
 GROUP BY 1, 2, 3

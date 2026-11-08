@@ -1,8 +1,10 @@
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
+import { parse as parseYaml } from "yaml";
 import { sql } from "../../db/client.js";
 import { logger } from "../../logger.js";
 import { spawnArtillery, killRun, isRunActive } from "../../lib/artillery.js";
+import type { PhaseAnnotation } from "../../types.js";
 
 const runs = new Hono();
 
@@ -117,7 +119,9 @@ runs.get("/compare", async (c) => {
 
   const series = endpoint !== undefined
     ? await sql`
-        SELECT bucket, run_id, endpoint, rps, p50, p95, p99, error_rate, samples
+        SELECT bucket, run_id, endpoint, rps, p50, p95, p99, error_rate, samples,
+               vusers_started, vusers_stopped, vusers_created, vusers_completed,
+               error_count, hist_min, hist_max, hist_p75, hist_p90, hist_p999
         FROM ${sql.identifier(view)}
         WHERE run_id = ANY(${ids})
           AND bucket >= COALESCE(${from}::timestamptz, '-infinity')
@@ -126,7 +130,9 @@ runs.get("/compare", async (c) => {
         ORDER BY bucket, run_id, endpoint
       `
     : await sql`
-        SELECT bucket, run_id, endpoint, rps, p50, p95, p99, error_rate, samples
+        SELECT bucket, run_id, endpoint, rps, p50, p95, p99, error_rate, samples,
+               vusers_started, vusers_stopped, vusers_created, vusers_completed,
+               error_count, hist_min, hist_max, hist_p75, hist_p90, hist_p999
         FROM ${sql.identifier(view)}
         WHERE run_id = ANY(${ids})
           AND bucket >= COALESCE(${from}::timestamptz, '-infinity')
@@ -164,6 +170,83 @@ runs.get("/:id/endpoints", async (c) => {
   return c.json(rows);
 });
 
+// ─── Phase annotations ───
+// Artillery phase boundaries parsed from the stored script config, anchored
+// to the run's started_at. Runs started outside `POST /api/runs` have no
+// config_yaml and return an empty list. Phases without a finite duration
+// (infinite/pause) are represented with a null end.
+
+runs.get("/:id/phases", async (c) => {
+  const { id } = c.req.param();
+  const rows = await sql`
+    SELECT started_at, config_yaml FROM runs WHERE id = ${id}
+  `;
+  if (rows.length === 0) return c.json({ error: "not found" }, 404);
+
+  const run = rows[0];
+  if (!run.config_yaml) return c.json([]);
+  const startedAt = run.started_at instanceof Date
+    ? run.started_at
+    : new Date(run.started_at);
+
+  let parsed: unknown;
+  try {
+    parsed = parseYaml(run.config_yaml);
+  } catch {
+    return c.json([]);
+  }
+  const phases = extractPhases(parsed);
+  if (phases.length === 0) return c.json([]);
+
+  const annotations: PhaseAnnotation[] = [];
+  let offsetMs = 0;
+  for (const phase of phases) {
+    const start = new Date(startedAt.getTime() + offsetMs);
+    const end = phase.durationMs === null
+      ? null
+      : new Date(startedAt.getTime() + offsetMs + phase.durationMs);
+    annotations.push({
+      start: start.toISOString(),
+      end: end ? end.toISOString() : null,
+      name: phase.name,
+    });
+    if (phase.durationMs === null) break; // unbounded phase ends the clock
+    offsetMs += phase.durationMs;
+  }
+  return c.json(annotations);
+});
+
+interface ParsedPhase {
+  name: string;
+  durationMs: number | null;
+}
+
+function extractPhases(script: unknown): ParsedPhase[] {
+  if (typeof script !== "object" || script === null) return [];
+  const config = (script as Record<string, unknown>).config;
+  if (typeof config !== "object" || config === null) return [];
+  const phases = (config as Record<string, unknown>).phases;
+  if (!Array.isArray(phases)) return [];
+
+  const out: ParsedPhase[] = [];
+  phases.forEach((phase, index) => {
+    if (typeof phase !== "object" || phase === null) return;
+    const record = phase as Record<string, unknown>;
+    const duration = Number(record.duration);
+    const name = typeof record.name === "string"
+      ? record.name
+      : typeof record.phase === "string"
+        ? record.phase
+        : `phase ${index + 1}`;
+    out.push({
+      name,
+      durationMs:
+        Number.isFinite(duration) && duration > 0 ? duration * 1000 : null,
+    });
+  });
+  return out;
+}
+
 // ─── Aggregated metrics ───
 
 runs.get("/:id/metrics", async (c) => {
@@ -180,7 +263,9 @@ runs.get("/:id/metrics", async (c) => {
 
   const rows = endpoint !== undefined
     ? await sql`
-        SELECT bucket, endpoint, rps, p50, p95, p99, error_rate, samples
+        SELECT bucket, endpoint, rps, p50, p95, p99, error_rate, samples,
+               vusers_started, vusers_stopped, vusers_created, vusers_completed,
+               error_count, hist_min, hist_max, hist_p75, hist_p90, hist_p999
         FROM ${sql.identifier(view)}
         WHERE run_id = ${id}
           AND bucket >= COALESCE(${from}::timestamptz, '-infinity')
@@ -189,7 +274,9 @@ runs.get("/:id/metrics", async (c) => {
         ORDER BY bucket
       `
     : await sql`
-        SELECT bucket, endpoint, rps, p50, p95, p99, error_rate, samples
+        SELECT bucket, endpoint, rps, p50, p95, p99, error_rate, samples,
+               vusers_started, vusers_stopped, vusers_created, vusers_completed,
+               error_count, hist_min, hist_max, hist_p75, hist_p90, hist_p999
         FROM ${sql.identifier(view)}
         WHERE run_id = ${id}
           AND bucket >= COALESCE(${from}::timestamptz, '-infinity')
@@ -210,7 +297,9 @@ runs.get("/:id/raw", async (c) => {
 
   const rows = endpoint !== undefined
     ? await sql`
-        SELECT time, endpoint, rps, p50, p95, p99, error_rate
+        SELECT time, endpoint, rps, p50, p95, p99, error_rate,
+               vusers_started, vusers_stopped, vusers_created, vusers_completed,
+               error_count, hist_min, hist_max, hist_p75, hist_p90, hist_p999
         FROM metrics
         WHERE run_id = ${id}
           AND time >= COALESCE(${from}::timestamptz, '-infinity')
@@ -220,7 +309,9 @@ runs.get("/:id/raw", async (c) => {
         LIMIT 100000
       `
     : await sql`
-        SELECT time, endpoint, rps, p50, p95, p99, error_rate
+        SELECT time, endpoint, rps, p50, p95, p99, error_rate,
+               vusers_started, vusers_stopped, vusers_created, vusers_completed,
+               error_count, hist_min, hist_max, hist_p75, hist_p90, hist_p999
         FROM metrics
         WHERE run_id = ${id}
           AND time >= COALESCE(${from}::timestamptz, '-infinity')

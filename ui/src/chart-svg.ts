@@ -74,6 +74,36 @@ export function linePathFrom(
     .join(" ");
 }
 
+/** Cumulative step curve (step-after): horizontal hold, then jump. */
+export function stepPathFrom(
+  points: Array<{ time: number; value: number }>,
+  x: (time: number) => number,
+  y: (value: number) => number,
+): string | null {
+  if (points.length === 0) return null;
+  const parts = [`M${x(points[0]!.time).toFixed(2)},${y(points[0]!.value).toFixed(2)}`];
+  for (let i = 1; i < points.length; i += 1) {
+    const prev = points[i - 1]!;
+    const cur = points[i]!;
+    parts.push(`L${x(cur.time).toFixed(2)},${y(prev.value).toFixed(2)}`);
+    parts.push(`L${x(cur.time).toFixed(2)},${y(cur.value).toFixed(2)}`);
+  }
+  return parts.join(" ");
+}
+
+/**
+ * Phase names come from user YAML — the only string that enters generated
+ * SVG markup. Escape it (all other generated values are computed numbers).
+ */
+export function escapeAnnotationLabel(name: string): string {
+  return name
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/["']/g, "&quot;")
+    .slice(0, 40);
+}
+
 export function areaPathFrom(
   points: Array<{ time: number; value: number }>,
   x: (time: number) => number,

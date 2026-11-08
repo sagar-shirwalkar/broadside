@@ -293,6 +293,16 @@ export function parseReportPoints(
       p95: responseTime?.p95 ?? 0,
       p99: responseTime?.p99 ?? 0,
       errorRate: totalVUsers > 0 ? failedVUsers / totalVUsers : 0,
+      vusersStarted: counters["vusers.started"],
+      vusersStopped: counters["vusers.stopped"],
+      vusersCreated: counters["vusers.created"],
+      vusersCompleted: counters["vusers.completed"],
+      errorCount: failedVUsers,
+      histMin: responseTime?.min,
+      histMax: responseTime?.max,
+      histP75: responseTime?.p75,
+      histP90: responseTime?.p90,
+      histP999: responseTime?.p999,
     });
 
     const endpoints = collectEndpoints(intermediate);
@@ -324,6 +334,12 @@ export function parseReportPoints(
         p99: endpoint.histogram?.p99 ?? 0,
         errorRate:
           requestTotal > 0 ? endpoint.errors / requestTotal : 0,
+        errorCount: endpoint.errors,
+        histMin: endpoint.histogram?.min,
+        histMax: endpoint.histogram?.max,
+        histP75: endpoint.histogram?.p75,
+        histP90: endpoint.histogram?.p90,
+        histP999: endpoint.histogram?.p999,
       });
     }
   });

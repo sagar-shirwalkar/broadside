@@ -108,7 +108,7 @@ Only `1m`, `1h`, and `1d` are valid granularities. The view name is selected wit
 
 ## Data model
 
-- **`metrics`** — raw hypertable: `time`, `run_id`, `endpoint`, `rps`, `p50`, `p95`, `p99`, `error_rate`. One-day chunks; index on `(run_id, time DESC)`. Aggregate rows use `endpoint = ''`; per-endpoint rows use the plugin's URL/request name. Aggregate error rate is VU-based; per-endpoint error rate is request-based.
+- **`metrics`** — raw hypertable: `time`, `run_id`, `endpoint`, `rps`, `p50`, `p95`, `p99`, `error_rate`, plus per-bucket VU counter deltas (`vusers_started`, `vusers_stopped`, `vusers_created`, `vusers_completed`), absolute `error_count`, and response-time histogram quantiles (`hist_min`, `hist_max`, `hist_p75`, `hist_p90`, `hist_p999`). One-day chunks; index on `(run_id, time DESC)`. Aggregate rows use `endpoint = ''`; per-endpoint rows use the plugin's URL/request name. Aggregate error rate is VU-based; per-endpoint error rate is request-based. `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` statements exist so `db:init` upgrades pre-existing volumes in place; dropping and recreating the CAGGs gives them the new columns.
 - **`runs`** — run metadata: `id`, `started_at`, `duration_ms`, `total_requests`, `p50`, `p95`, `p99`, `error_rate`, `status`, `config_yaml`, `json_path`. `status` is `running`, `completed`, or `failed`; `json_path` is the persisted report location for orchestrated runs.
 - **Continuous aggregates** — `metrics_1m` is built from raw data; `metrics_1h` from `metrics_1m`; `metrics_1d` from `metrics_1h`.
 - **Policies** — continuous aggregates refresh on schedules; raw metrics compress after 7 days and are retained for 90 days.

@@ -1,17 +1,22 @@
 import { LitElement, css, html } from "lit";
 import { customElement, property } from "lit/decorators.js";
 import "./line-chart.js";
-import type { YFormat } from "./line-chart.js";
-import type { ChartSeries } from "../types.js";
+import "./info-tip.js";
+import type { ChartKind, XFormat, YFormat } from "./line-chart.js";
+import type { ChartSeries, PhaseAnnotation } from "../types.js";
 
 /**
- * A titled chart card with an optional "Reset zoom" button. Zoom events
- * from the inner line chart bubble up untouched; parents re-fetch raw
- * data for the window and flip `zoomed` to show the reset affordance.
+ * A titled chart card with an optional hover info card (why this metric
+ * matters), an optional "Reset zoom" button, and the inner line chart —
+ * which now also renders step curves (CDF), bars (histograms), and
+ * phase annotation lines. Zoom events bubble up untouched; parents
+ * re-fetch raw data for the window.
  */
 @customElement("broadside-chart-panel")
 export class ChartPanel extends LitElement {
   @property() title = "";
+  /** Short "why this matters" tooltip text (shown on ⓘ hover). */
+  @property() info = "";
   @property({ type: Array }) series: ChartSeries[] = [];
   @property() yFormat: YFormat = "ms";
   @property() yLabel = "";
@@ -19,6 +24,9 @@ export class ChartPanel extends LitElement {
   @property({ type: Boolean }) fill = false;
   @property({ type: Boolean }) zoomed = false;
   @property({ type: Array }) domain: [number, number] | null = null;
+  @property() kind: ChartKind = "line";
+  @property() xFormat: XFormat = "time";
+  @property({ type: Array }) annotations: PhaseAnnotation[] = [];
 
   private resetZoom() {
     this.dispatchEvent(
@@ -33,7 +41,15 @@ export class ChartPanel extends LitElement {
     return html`
       <section class="card">
         <header class="header">
-          <h3>${this.title}</h3>
+          <h3>
+            ${this.title}
+            ${this.info
+              ? html`<broadside-info-tip
+                  .text=${this.info}
+                  .label=${`about ${this.title}`}
+                ></broadside-info-tip>`
+              : ""}
+          </h3>
           <div class="actions">
             ${this.zoomed
               ? html`<button class="btn" @click=${this.resetZoom}>
@@ -50,6 +66,9 @@ export class ChartPanel extends LitElement {
           .height=${this.height}
           .fill=${this.fill}
           .domain=${this.domain}
+          .kind=${this.kind}
+          .xFormat=${this.xFormat}
+          .annotations=${this.annotations}
         ></broadside-line-chart>
       </section>
     `;
@@ -83,6 +102,9 @@ export class ChartPanel extends LitElement {
       color: var(--text);
       letter-spacing: 0.06em;
       text-transform: uppercase;
+      display: flex;
+      align-items: center;
+      gap: var(--s-2);
     }
     .actions {
       display: flex;

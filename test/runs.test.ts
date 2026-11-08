@@ -147,6 +147,82 @@ describe("runs routes", () => {
     expect(h.sqlMock.mock.calls[0]?.[1]).toBe("run-1");
   });
 
+  it("derives phase annotations from the run's config yaml", async () => {
+    const started = new Date("2026-01-01T10:00:00.000Z");
+    h.sqlMock.mockResolvedValueOnce([
+      {
+        started_at: started,
+        config_yaml: [
+          "config:",
+          "  phases:",
+          "    - duration: 10",
+          "      arrivalRate: 1",
+          '      name: "Ramp"',
+          "    - duration: 20",
+          "      arrivalRate: 5",
+          "    - duration: 5",
+          "      pause: true",
+        ].join("\n"),
+      },
+    ]);
+
+    const res = await client[":id"].phases.$get({ param: { id: "run-1" } });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual([
+      {
+        start: "2026-01-01T10:00:00.000Z",
+        end: "2026-01-01T10:00:10.000Z",
+        name: "Ramp",
+      },
+      {
+        start: "2026-01-01T10:00:10.000Z",
+        end: "2026-01-01T10:00:30.000Z",
+        name: "phase 2",
+      },
+      {
+        start: "2026-01-01T10:00:30.000Z",
+        end: "2026-01-01T10:00:35.000Z",
+        name: "phase 3",
+      },
+    ]);
+  });
+
+  it("returns no phases without config or for unknown runs", async () => {
+    h.sqlMock.mockResolvedValueOnce([{ started_at: new Date(), config_yaml: null }]);
+    const res = await client[":id"].phases.$get({ param: { id: "run-1" } });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual([]);
+  });
+
+  it("returns 404 for phases of an unknown run", async () => {
+    h.sqlMock.mockResolvedValueOnce([]);
+    const res = await client[":id"].phases.$get({ param: { id: "missing" } });
+    expect(res.status).toBe(404);
+    expect(await res.json()).toEqual({ error: "not found" });
+  });
+
+  it("returns no phases for unparseable config", async () => {
+    h.sqlMock.mockResolvedValueOnce([
+      { started_at: new Date(), config_yaml: "config: [unclosed" },
+    ]);
+    const res = await client[":id"].phases.$get({ param: { id: "run-1" } });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual([]);
+  });
+
+  it("returns no phases when the config has no phases", async () => {
+    h.sqlMock.mockResolvedValueOnce([
+      {
+        started_at: new Date(),
+        config_yaml: "config:\n  target: https://example.com\n",
+      },
+    ]);
+    const res = await client[":id"].phases.$get({ param: { id: "run-1" } });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual([]);
+  });
+
   it("compares multiple runs", async () => {
     const runs = [{ id: "run-1" }, { id: "run-2" }];
     const series = [{ bucket: "2026-01-01T00:00:00Z", run_id: "run-1" }];

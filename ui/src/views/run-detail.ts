@@ -2,12 +2,16 @@ import { LitElement, css, html } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import { api, apiGet, ApiError, RUN_STATUS_EVENT } from "../api.js";
 import type {
+  ChartPoint,
   ChartSeries,
+  EndpointRow,
   Granularity,
   MetricRow,
+  PhaseAnnotation,
   RawRow,
   RunRow,
 } from "../types.js";
+import { cumulative, num } from "../types.js";
 import {
   formatDuration,
   formatMs,
@@ -27,6 +31,32 @@ type ZoomRange = { from: number; to: number } | null;
 const PANELS = ["rps", "latency", "errors", "volume"] as const;
 type PanelKey = (typeof PANELS)[number];
 
+const MAX_ENDPOINT_SERIES = 8;
+
+/** Steady-state-friendly tooltips (one scannable line each). */
+const INFO = {
+  throughput:
+    "Requests per second over time — the load the system actually felt.",
+  latency:
+    "p50 / p95 / p99 latency over time — how slow is the typical, slow and slowest request?",
+  errorRate:
+    "Failed share of requests per interval — is the error budget holding?",
+  activeVusers:
+    "started minus stopped, cumulative — the load shape: ramp, hold, teardown. RPS tells you what happened; VUsers tell you why.",
+  tailSpread:
+    "p99 divided by p50. Flat means the tail tracks the median; a spike means some requests are much slower than others — GC pauses, lock contention, pool exhaustion.",
+  cdf:
+    "Share of requests at or under each latency. The knee shows where most traffic lands; the long tail shows the outliers. Approximated from the report's percentiles.",
+  perEndpoint:
+    "p95 latency per endpoint — which endpoint is the problem, without filtering anything away.",
+  errorCount:
+    "Absolute error count, cumulative. The rate hides volume: 0.1% of 1M requests is still a thousand errors.",
+  vusersIo:
+    "Created vs. completed VUsers. Created running ahead of completed means in-flight work accumulating — backpressure.",
+  histogram:
+    "Approximate distribution shape from the report's percentiles — watch for a bimodal shape (two code paths with very different latencies).",
+};
+
 @customElement("broadside-run-detail")
 export class RunDetail extends LitElement {
   @property() runId = "";
@@ -40,6 +70,8 @@ export class RunDetail extends LitElement {
   @state() private zoomByPanel = new Map<PanelKey, ZoomRange>();
   @state() private previous: RunRow | null = null;
   @state() private loading = true;
+  @state() private annotations: PhaseAnnotation[] = [];
+  @state() private endpointSeries: ChartSeries[] = [];
 
   @state() private confirmOpen = false;
   @state() private confirmBusy = false;
@@ -65,6 +97,8 @@ export class RunDetail extends LitElement {
       await Promise.all([
         this.loadMetrics(),
         this.loadPrevious(),
+        this.loadAnnotations(),
+        this.loadEndpointSeries(),
       ]);
     } catch (err) {
       if (err instanceof ApiError && err.status === 404) {
@@ -102,10 +136,56 @@ export class RunDetail extends LitElement {
     }
   }
 
+  private async loadAnnotations() {
+    try {
+      this.annotations = await apiGet<PhaseAnnotation[]>(
+        `/api/runs/${encodeURIComponent(this.runId)}/phases`,
+      );
+    } catch {
+      this.annotations = [];
+    }
+  }
+
+  /** Multi-line p95, one color per endpoint, via the metrics-by-endpoint
+   *  plugin data. Empty when the plugin produced nothing. */
+  private async loadEndpointSeries() {
+    try {
+      const endpoints = await apiGet<EndpointRow[]>(
+        `/api/runs/${encodeURIComponent(this.runId)}/endpoints`,
+      );
+      const picked = endpoints.slice(0, MAX_ENDPOINT_SERIES);
+      const series = await Promise.all(
+        picked.map(async (e, i) => {
+          const params = new URLSearchParams({
+            granularity: this.granularity,
+            endpoint: e.endpoint,
+          });
+          const rows = await apiGet<MetricRow[]>(
+            `/api/runs/${encodeURIComponent(this.runId)}/metrics?${params}`,
+          );
+          const points = rows
+            .map((r) => ({
+              time: new Date(r.bucket).getTime(),
+              value: num(r.p95),
+            }))
+            .filter((p): p is { time: number; value: number } => p.value !== null);
+          return {
+            name: e.endpoint,
+            colorIndex: (i % 5) + 1,
+            points,
+          } satisfies ChartSeries;
+        }),
+      );
+      this.endpointSeries = series.filter((s) => s.points.length > 0);
+    } catch {
+      this.endpointSeries = [];
+    }
+  }
+
   private points(
     rows: MetricRow[],
     pick: (r: MetricRow) => number | null,
-  ): Array<{ time: number; value: number }> {
+  ): ChartPoint[] {
     return rows
       .map((row) => ({
         time: new Date(row.bucket).getTime(),
@@ -160,6 +240,100 @@ export class RunDetail extends LitElement {
     }
   }
 
+  // ─── Derived new-chart series ───
+
+  private activeVusers(): ChartPoint[] {
+    return cumulative(
+      this.points(this.rows, (r) => {
+        const s = num(r.vusers_started);
+        const t = num(r.vusers_stopped);
+        return s !== null && t !== null ? s - t : null;
+      }),
+    );
+  }
+
+  private tailSpread(): ChartPoint[] {
+    return this.points(this.rows, (r) => {
+      const p50 = r.p50;
+      const p99 = r.p99;
+      return p50 && p99 && p50 > 0 ? p99 / p50 : null;
+    });
+  }
+
+  private errorCount(): ChartPoint[] {
+    return cumulative(
+      this.points(this.rows, (r) => num(r.error_count)),
+    );
+  }
+
+  private vusersIo(): ChartSeries[] {
+    return [
+      {
+        name: "created",
+        colorIndex: 1,
+        points: cumulative(
+          this.points(this.rows, (r) => num(r.vusers_created)),
+        ),
+      },
+      {
+        name: "completed",
+        colorIndex: 2,
+        points: cumulative(
+          this.points(this.rows, (r) => num(r.vusers_completed)),
+        ),
+      },
+    ];
+  }
+
+  /** CDF from the latest bucket's quantiles: (latency ms → share of
+   *  requests). Approximated from the report's percentile points. */
+  private cdfSeries(): ChartSeries[] {
+    const last = this.rows[this.rows.length - 1];
+    if (!last) return [];
+    const quantiles: Array<[number | null, number]> = [
+      [num(last.hist_min), 0.001],
+      [last.p50, 0.5],
+      [num(last.hist_p75), 0.75],
+      [num(last.hist_p90), 0.9],
+      [last.p95, 0.95],
+      [last.p99, 0.99],
+      [num(last.hist_p999), 0.999],
+      [num(last.hist_max), 1.0],
+    ];
+    const points = quantiles
+      .filter((q): q is [number, number] => q[0] !== null)
+      .map(([ms, frac]) => ({ time: ms, value: frac }));
+    return points.length > 0
+      ? [{ name: "share of requests", colorIndex: 1, points }]
+      : [];
+  }
+
+  /** Quantile shares as a histogram: how much traffic falls in each band. */
+  private histogramSeries(): ChartSeries[] {
+    const last = this.rows[this.rows.length - 1];
+    if (!last) return [];
+    const edges: Array<[number | null, number]> = [
+      [last.p50, 0.5],
+      [num(last.hist_p75), 0.75],
+      [num(last.hist_p90), 0.9],
+      [last.p95, 0.95],
+      [last.p99, 0.99],
+      [num(last.hist_p999), 0.999],
+      [num(last.hist_max), 1.0],
+    ];
+    const points: ChartPoint[] = [];
+    let prev = 0;
+    for (const [ms, frac] of edges) {
+      if (ms === null) continue;
+      points.push({ time: ms, value: (frac - prev) * 100 });
+      prev = frac;
+      if (frac >= 1.0) break;
+    }
+    return points.length > 0
+      ? [{ name: "share of requests", colorIndex: 1, points }]
+      : [];
+  }
+
   private async onZoom(event: CustomEvent<{ from: number; to: number }>, key: PanelKey) {
     const { from, to } = event.detail;
     const params = new URLSearchParams({
@@ -195,6 +369,15 @@ export class RunDetail extends LitElement {
     this.zoomByPanel = new Map();
     this.rawByPanel = new Map();
     void this.loadMetrics();
+  }
+
+  private onGranularityChange(event: Event) {
+    this.granularity = (event.target as HTMLSelectElement)
+      .value as Granularity;
+    this.zoomByPanel = new Map();
+    this.rawByPanel = new Map();
+    void this.loadMetrics();
+    void this.loadEndpointSeries();
   }
 
   private async doDelete() {
@@ -315,13 +498,7 @@ export class RunDetail extends LitElement {
             <select
               class="select"
               .value=${this.granularity}
-              @change=${(e: Event) => {
-                this.granularity = (e.target as HTMLSelectElement)
-                  .value as Granularity;
-                this.zoomByPanel = new Map();
-                this.rawByPanel = new Map();
-                void this.loadMetrics();
-              }}
+              @change=${this.onGranularityChange}
             >
               <option value="1m">1 minute</option>
               <option value="1h">1 hour</option>
@@ -332,47 +509,109 @@ export class RunDetail extends LitElement {
 
         <div class="grid">
           <broadside-chart-panel
-            title="requests / second"
+            title="throughput"
+            .info=${INFO.throughput}
             .series=${this.seriesFor("rps")}
             yFormat="req/s"
             yLabel="req/s"
             .fill=${true}
             .zoomed=${zoomDomain("rps") !== null}
             .domain=${zoomDomain("rps")}
+            .annotations=${this.annotations}
             @zoom=${(e: CustomEvent) => void this.onZoom(e, "rps")}
             @reset-zoom=${() => this.resetZoom("rps")}
           ></broadside-chart-panel>
           <broadside-chart-panel
             title="latency percentiles"
+            .info=${INFO.latency}
             .series=${this.seriesFor("latency")}
             yFormat="ms"
             yLabel="ms"
             .zoomed=${zoomDomain("latency") !== null}
             .domain=${zoomDomain("latency")}
+            .annotations=${this.annotations}
             @zoom=${(e: CustomEvent) => void this.onZoom(e, "latency")}
             @reset-zoom=${() => this.resetZoom("latency")}
           ></broadside-chart-panel>
           <broadside-chart-panel
             title="error rate"
+            .info=${INFO.errorRate}
             .series=${this.seriesFor("errors")}
             yFormat="%"
             yLabel="%"
             .fill=${true}
             .zoomed=${zoomDomain("errors") !== null}
             .domain=${zoomDomain("errors")}
+            .annotations=${this.annotations}
             @zoom=${(e: CustomEvent) => void this.onZoom(e, "errors")}
             @reset-zoom=${() => this.resetZoom("errors")}
           ></broadside-chart-panel>
           <broadside-chart-panel
-            title="throughput"
-            .series=${this.seriesFor("volume")}
-            yFormat="req/s"
-            yLabel="req/s"
+            title="active virtual users"
+            .info=${INFO.activeVusers}
+            .series=${[{ name: "active vusers", colorIndex: 4, points: this.activeVusers() }]}
+            yFormat="count"
+            yLabel="vusers"
             .fill=${true}
-            .zoomed=${zoomDomain("volume") !== null}
-            .domain=${zoomDomain("volume")}
-            @zoom=${(e: CustomEvent) => void this.onZoom(e, "volume")}
-            @reset-zoom=${() => this.resetZoom("volume")}
+            .annotations=${this.annotations}
+          ></broadside-chart-panel>
+          <broadside-chart-panel
+            title="tail latency spread"
+            .info=${INFO.tailSpread}
+            .series=${[{ name: "p99 / p50", colorIndex: 2, points: this.tailSpread() }]}
+            yFormat="count"
+            yLabel="×"
+            .annotations=${this.annotations}
+          ></broadside-chart-panel>
+          <broadside-chart-panel
+            title="latency CDF"
+            .info=${INFO.cdf}
+            .series=${this.cdfSeries()}
+            yFormat="%"
+            yLabel="share"
+            kind="step"
+            xFormat="number"
+            .fill=${true}
+          ></broadside-chart-panel>
+          ${this.endpointSeries.length > 0
+            ? html`<broadside-chart-panel
+                title="per-endpoint p95"
+                .info=${INFO.perEndpoint}
+                .series=${this.endpointSeries}
+                yFormat="ms"
+                yLabel="ms"
+                kind="line"
+                .annotations=${this.annotations}
+              ></broadside-chart-panel>`
+            : html`<div class="card hint-card">
+                <span class="hint-title">per-endpoint p95</span>
+                <p class="hint">enable the metrics-by-endpoint plugin in your Artillery YAML for per-endpoint charts</p>
+              </div>`}
+          <broadside-chart-panel
+            title="error count"
+            .info=${INFO.errorCount}
+            .series=${[{ name: "errors", colorIndex: 3, points: this.errorCount() }]}
+            yFormat="count"
+            yLabel="errors"
+            .fill=${true}
+            .annotations=${this.annotations}
+          ></broadside-chart-panel>
+          <broadside-chart-panel
+            title="vusers created vs completed"
+            .info=${INFO.vusersIo}
+            .series=${this.vusersIo()}
+            yFormat="count"
+            yLabel="vusers"
+            .annotations=${this.annotations}
+          ></broadside-chart-panel>
+          <broadside-chart-panel
+            title="latency histogram"
+            .info=${INFO.histogram}
+            .series=${this.histogramSeries()}
+            yFormat="%"
+            yLabel="share"
+            kind="bars"
+            xFormat="number"
           ></broadside-chart-panel>
         </div>
       </div>
@@ -506,6 +745,28 @@ export class RunDetail extends LitElement {
       .grid {
         grid-template-columns: 1fr;
       }
+    }
+    .hint-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: var(--s-5);
+    }
+    .hint-title {
+      display: block;
+      font-family: var(--font-mono);
+      font-size: var(--step-0);
+      font-weight: 500;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      margin-bottom: var(--s-3);
+    }
+    .hint {
+      margin: 0;
+      font-family: var(--font-mono);
+      font-size: var(--step--1);
+      color: var(--mute);
+      line-height: 1.6;
     }
   `;
 }

@@ -179,6 +179,73 @@ describe("parseReportPoints", () => {
     expect(missing.errorRate).toBe(0.5);
   });
 
+  it("populates vu counters and histogram quantiles from the report", () => {
+    const period = new Date("2026-01-01T00:00:00.000Z");
+    const report: ArtilleryReport = {
+      intermediate: [
+        {
+          period: String(period.getTime()),
+          counters: {
+            "http.requests": 10,
+            "vusers.started": 7,
+            "vusers.stopped": 3,
+            "vusers.created": 8,
+            "vusers.completed": 5,
+            "vusers.failed": 1,
+            "plugins.metrics-by-endpoint./api/users.errors.502": 2,
+          },
+          histograms: {
+            "http.response_time": {
+              min: 4,
+              max: 90,
+              p50: 10,
+              p75: 14,
+              p90: 18,
+              p95: 20,
+              p99: 30,
+              p999: 60,
+            },
+            "plugins.metrics-by-endpoint.response_time./api/users": {
+              count: 6,
+              min: 2,
+              max: 40,
+              p50: 5,
+              p75: 8,
+              p90: 12,
+              p95: 15,
+              p99: 25,
+              p999: 35,
+            },
+          },
+          rates: { "http.request_rate": 2 },
+        },
+      ],
+      aggregate: aggregateOnly,
+    };
+
+    const points = parseReportPoints(report, "run-1");
+
+    const aggregate = endpointPoint(points, "");
+    expect(aggregate.vusersStarted).toBe(7);
+    expect(aggregate.vusersStopped).toBe(3);
+    expect(aggregate.vusersCreated).toBe(8);
+    expect(aggregate.vusersCompleted).toBe(5);
+    expect(aggregate.errorCount).toBe(1);
+    expect(aggregate.histMin).toBe(4);
+    expect(aggregate.histMax).toBe(90);
+    expect(aggregate.histP75).toBe(14);
+    expect(aggregate.histP90).toBe(18);
+    expect(aggregate.histP999).toBe(60);
+
+    const users = endpointPoint(points, "/api/users");
+    expect(users.errorCount).toBe(2);
+    expect(users.histP75).toBe(8);
+    expect(users.histP90).toBe(12);
+    expect(users.histP999).toBe(35);
+    expect(users.histMin).toBe(2);
+    expect(users.histMax).toBe(40);
+  });
+
   it("falls back to summaries and infers custom plugin namespaces", () => {
     const report: ArtilleryReport = {
       intermediate: [

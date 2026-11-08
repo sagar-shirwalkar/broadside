@@ -1,17 +1,21 @@
 import { LitElement, css, html } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
-import type { ChartSeries } from "../types.js";
+import type { ChartSeries, PhaseAnnotation } from "../types.js";
 import { formatClock, formatTick } from "../format.js";
 import {
   areaPathFrom,
+  escapeAnnotationLabel,
   linScale,
   linePathFrom,
   nearestTime,
   niceTicks,
+  stepPathFrom,
   timeTicks,
 } from "../chart-svg.js";
 
 export type YFormat = "ms" | "req/s" | "%" | "count";
+export type ChartKind = "line" | "step" | "bars";
+export type XFormat = "time" | "number";
 
 const MARGIN = { top: 12, right: 16, bottom: 28, left: 60 };
 const TICK_COUNT_Y = 5;
@@ -45,6 +49,12 @@ export class LineChart extends LitElement {
   @property({ type: Boolean }) fill = false;
   /** Explicit x domain (set when zoomed). Null = auto from data. */
   @property({ type: Array }) domain: [number, number] | null = null;
+  /** line = polyline, step = step curve (CDF), bars = bucket bars. */
+  @property() kind: ChartKind = "line";
+  /** "time" = epoch ms (default); "number" = raw numeric x (latency). */
+  @property() xFormat: XFormat = "time";
+  /** Phase boundaries drawn as dashed verticals with labels. */
+  @property({ type: Array }) annotations: PhaseAnnotation[] = [];
 
   @state() private width = 0;
   @state() private hoverTime: number | null = null;
@@ -233,7 +243,10 @@ export class LineChart extends LitElement {
     const yDomain = this.yDomain();
     const x = linScale(xDomain, [0, pw]);
     const y = linScale(yDomain, [ph, 0]);
-    const xTicks = timeTicks(xDomain[0], xDomain[1], TICK_COUNT_X);
+    const xTicks =
+      this.xFormat === "number"
+        ? niceTicks(xDomain[0], xDomain[1], TICK_COUNT_X)
+        : timeTicks(xDomain[0], xDomain[1], TICK_COUNT_X);
     const yTicks = niceTicks(yDomain[0], yDomain[1], TICK_COUNT_Y);
     const span = xDomain[1] - xDomain[0];
 
@@ -256,12 +269,48 @@ export class LineChart extends LitElement {
     xTicks.forEach((t, i) => {
       const anchor =
         i === 0 ? "start" : i === xTicks.length - 1 ? "end" : "middle";
-      parts.push(
-        `<text class="axis" x="${x(t)}" y="${ph + 18}" text-anchor="${anchor}">${formatTick(t, span)}</text>`,
-      );
+      if (this.xFormat === "number") {
+        const label =
+          t >= 1000 ? `${(t / 1000).toFixed(1)}s` : `${Math.round(t)}`;
+        parts.push(
+          `<text class="axis" x="${x(t)}" y="${ph + 18}" text-anchor="${anchor}">${label}</text>`,
+        );
+      } else {
+        parts.push(
+          `<text class="axis" x="${x(t)}" y="${ph + 18}" text-anchor="${anchor}">${formatTick(t, span)}</text>`,
+        );
+      }
     });
 
     for (const s of this.series) {
+      if (this.kind === "bars") {
+        const count = s.points.length;
+        const slot = count > 0 ? pw / count : 0;
+        s.points.forEach((p, i) => {
+          const left = i * slot + slot * 0.2;
+          parts.push(
+            `<rect class="bar bar-${s.colorIndex}" x="${left.toFixed(1)}" y="${y(p.value).toFixed(1)}" width="${(slot * 0.6).toFixed(1)}" height="${(ph - y(p.value)).toFixed(1)}"/>`,
+          );
+        });
+        continue;
+      }
+
+      if (this.kind === "step") {
+        const path = stepPathFrom(s.points, x, y) ?? "";
+        if (path) {
+          parts.push(`<path class="fill fill-${s.colorIndex}" d="${path} L${x(this.xEnd(s))},${ph} L${x(s.points[0]!.time)},${ph} Z"/>`);
+          parts.push(`<path class="line line-${s.colorIndex}" d="${path}"/>`);
+        }
+        const single = s.points.length === 1;
+        if (single) {
+          const p = s.points[0]!;
+          parts.push(
+            `<circle class="dot dot-${s.colorIndex}" cx="${x(p.time)}" cy="${y(p.value)}" r="4.5"/>`,
+          );
+        }
+        continue;
+      }
+
       if (this.fill && s.points.length > 1) {
         parts.push(
           `<path class="fill fill-${s.colorIndex}" d="${areaPathFrom(s.points, x, y, ph)}"/>`,
@@ -274,7 +323,6 @@ export class LineChart extends LitElement {
       }
       const single = s.points.length === 1;
       if (single) {
-        // d3-less line makes no segment for one point — draw a marker.
         const p = s.points[0]!;
         parts.push(
           `<circle class="dot dot-${s.colorIndex}" cx="${x(p.time)}" cy="${y(p.value)}" r="4.5"/>`,
@@ -294,6 +342,26 @@ export class LineChart extends LitElement {
       );
     }
 
+    for (const a of this.annotations) {
+      const startMs = new Date(a.start).getTime();
+      if (startMs >= xDomain[0] && startMs <= xDomain[1]) {
+        parts.push(
+          `<line class="annotation" x1="${x(startMs)}" x2="${x(startMs)}" y1="0" y2="${ph}"/>`,
+        );
+        parts.push(
+          `<text class="annotation-label" x="${x(startMs) + 4}" y="10">${escapeAnnotationLabel(a.name)}</text>`,
+        );
+      }
+      if (a.end) {
+        const endMs = new Date(a.end).getTime();
+        if (endMs >= xDomain[0] && endMs <= xDomain[1]) {
+          parts.push(
+            `<line class="annotation annotation-end" x1="${x(endMs)}" x2="${x(endMs)}" y1="0" y2="${ph}"/>`,
+          );
+        }
+      }
+    }
+
     if (this.hoverTime !== null) {
       const hoverX = x(this.hoverTime);
       parts.push(
@@ -302,6 +370,10 @@ export class LineChart extends LitElement {
     }
 
     return parts.join("");
+  }
+
+  private xEnd(s: ChartSeries): number {
+    return s.points.length > 0 ? s.points[s.points.length - 1]!.time : 0;
   }
 
   // ─── Render ───
@@ -475,6 +547,38 @@ export class LineChart extends LitElement {
     .brush {
       fill: var(--brand);
       opacity: 0.15;
+    }
+    .bar {
+      fill-opacity: 0.4;
+    }
+    .bar-1 {
+      fill: var(--chart-line-1);
+    }
+    .bar-2 {
+      fill: var(--chart-line-2);
+    }
+    .bar-3 {
+      fill: var(--chart-line-3);
+    }
+    .bar-4 {
+      fill: var(--chart-line-4);
+    }
+    .bar-5 {
+      fill: var(--chart-line-5);
+    }
+    .annotation {
+      stroke: var(--amber-dim);
+      stroke-width: 1;
+      stroke-dasharray: 4 4;
+    }
+    .annotation-end {
+      opacity: 0.6;
+    }
+    .annotation-label {
+      fill: var(--amber-dim);
+      font-size: 9px;
+      font-family: var(--font-mono);
+      letter-spacing: 0.05em;
     }
     .crosshair {
       stroke: var(--chart-axis);

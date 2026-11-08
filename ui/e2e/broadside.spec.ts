@@ -185,7 +185,7 @@ test("run detail shows KPI cards and charts", async ({ page }) => {
 
   await expect(page.locator("broadside-kpi-card")).toHaveCount(6);
   await expect(page.locator("broadside-run-detail")).toContainText(/requests/i);
-  await expect(page.locator("broadside-line-chart")).toHaveCount(4);
+  await expect(page.locator("broadside-line-chart")).toHaveCount(9);
   // Chart renders real SVG paths (not HTML-namespace lookalikes).
   const pathNs = await page
     .locator("broadside-line-chart path")
