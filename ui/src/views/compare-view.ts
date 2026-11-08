@@ -103,9 +103,11 @@ export class CompareView extends LitElement {
   ): ChartSeries[] {
     if (!this.data) return [];
     return this.data.runs.map((run, index) => {
+      const startedAt = new Date(this.runStartedAt(run.id)).getTime();
       const points = this.rowsFor(run.id)
         .map((row) => ({
-          time: new Date(row.bucket).getTime(),
+          // Elapsed ms since this run's own start (T+ alignment).
+          time: new Date(row.bucket).getTime() - startedAt,
           value: pick(row),
         }))
         .filter((p): p is { time: number; value: number } => p.value !== null);
@@ -117,10 +119,26 @@ export class CompareView extends LitElement {
     });
   }
 
-  /** Rows for one run in time order, normalized into buckets. */
+  /** Rows for one run in time order, re-based onto the run's own clock
+   *  (milliseconds since started_at). Absolute timestamps would squash
+   *  runs that started hours apart into spikes; elapsed time is how k6 /
+   *  BlazeMeter overlay runs — shorter runs simply end earlier and leave
+   *  honest empty space instead of being stretched. */
   private runBuckets(runId: string): Bucket[] {
     return this.rowsFor(runId).map((row) =>
-      toBucket(row, new Date(row.bucket).getTime()),
+      toBucket(
+        row,
+        new Date(row.bucket).getTime() -
+          new Date(this.runStartedAt(runId)).getTime(),
+      ),
+    );
+  }
+
+  private runStartedAt(runId: string): string {
+    return (
+      this.data?.runs.find((r) => r.id === runId)?.started_at ??
+      this.runs.find((r) => r.id === runId)?.started_at ??
+      new Date(0).toISOString()
     );
   }
 
@@ -279,41 +297,50 @@ export class CompareView extends LitElement {
           ? html`<broadside-skeleton variant="chart"></broadside-skeleton>`
           : this.data
             ? html`
+                <p class="elapsed-note">
+                  time axis: elapsed since each run's own start (t+)
+                </p>
                 <div class="grid">
                   <broadside-chart-panel
                     title="throughput"
                     .series=${this.seriesFor((r) => r.rps)}
                     yFormat="req/s"
+                    xFormat="elapsed"
                     .fill=${true}
                   ></broadside-chart-panel>
                   <broadside-chart-panel
                     title="p95 latency"
                     .series=${this.seriesFor((r) => r.p95)}
                     yFormat="ms"
+                    xFormat="elapsed"
                     .fill=${true}
                   ></broadside-chart-panel>
                   <broadside-chart-panel
                     title="error rate"
                     .series=${this.seriesFor((r) => r.error_rate)}
                     yFormat="%"
+                    xFormat="elapsed"
                     .fill=${true}
                   ></broadside-chart-panel>
                   <broadside-chart-panel
                     title="active virtual users"
                     .series=${this.multiSeries((b) => activeVusers(b))}
                     yFormat="count"
+                    xFormat="elapsed"
                     .fill=${true}
                   ></broadside-chart-panel>
                   <broadside-chart-panel
                     title="tail latency spread"
                     .series=${this.multiSeries((b) => tailSpread(b))}
                     yFormat="count"
+                    xFormat="elapsed"
                     .fill=${true}
                   ></broadside-chart-panel>
                   <broadside-chart-panel
                     title="error count"
                     .series=${this.multiSeries((b) => errorCount(b))}
                     yFormat="count"
+                    xFormat="elapsed"
                     .fill=${true}
                   ></broadside-chart-panel>
                   <broadside-chart-panel
@@ -329,6 +356,7 @@ export class CompareView extends LitElement {
                       },
                     )}
                     yFormat="count"
+                    xFormat="elapsed"
                   ></broadside-chart-panel>
                   <broadside-chart-panel
                     title="latency CDF"
@@ -567,6 +595,12 @@ export class CompareView extends LitElement {
     .best {
       font-weight: 500;
       color: var(--ok);
+    }
+    .elapsed-note {
+      margin: 0 0 var(--s-2);
+      font-family: var(--font-mono);
+      font-size: var(--step--1);
+      color: var(--mute);
     }
   `;
 }

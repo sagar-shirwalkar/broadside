@@ -1,7 +1,7 @@
 import { LitElement, css, html } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import type { ChartSeries, PhaseAnnotation } from "../types.js";
-import { formatClock, formatTick } from "../format.js";
+import { formatClock, formatElapsed, formatTick } from "../format.js";
 import {
   areaPathFrom,
   escapeAnnotationLabel,
@@ -15,7 +15,7 @@ import {
 
 export type YFormat = "ms" | "req/s" | "%" | "count";
 export type ChartKind = "line" | "step" | "bars";
-export type XFormat = "time" | "number";
+export type XFormat = "time" | "number" | "elapsed";
 
 const MARGIN = { top: 12, right: 16, bottom: 28, left: 60 };
 const TICK_COUNT_Y = 5;
@@ -274,6 +274,10 @@ export class LineChart extends LitElement {
           t >= 1000 ? `${(t / 1000).toFixed(1)}s` : `${Math.round(t)}`;
         parts.push(
           `<text class="axis" x="${x(t)}" y="${ph + 18}" text-anchor="${anchor}">${label}</text>`,
+        );
+      } else if (this.xFormat === "elapsed") {
+        parts.push(
+          `<text class="axis" x="${x(t)}" y="${ph + 18}" text-anchor="${anchor}">${formatElapsed(t)}</text>`,
         );
       } else {
         parts.push(
