@@ -561,6 +561,7 @@ export class RunDetail extends LitElement {
             .series=${[{ name: "p99 / p50", colorIndex: 2, points: this.tailSpread() }]}
             yFormat="count"
             yLabel="×"
+            .fill=${true}
             .annotations=${this.annotations}
           ></broadside-chart-panel>
           <broadside-chart-panel

@@ -27,11 +27,17 @@ export class App extends LitElement {
   @state() private needsAuth = false;
   @state() private triggerOpen = false;
   @state() private sidebarOpen = false;
+  @state() private theme = currentTheme();
 
   private onHash = () => {
     this.route = parseHash(window.location.hash);
     this.runStatus = null;
     this.sidebarOpen = false;
+  };
+
+  private onToggleTheme = () => {
+    toggleTheme();
+    this.theme = currentTheme();
   };
 
   private onUnauthorized = () => {
@@ -103,7 +109,7 @@ export class App extends LitElement {
       ></broadside-login>`;
     }
 
-    const dark = currentTheme() === "dark";
+    const dark = this.theme === "dark";
     const status = this.runStatus;
 
     return html`
@@ -122,7 +128,7 @@ export class App extends LitElement {
                 navigate("/");
               }}
             >
-              <span class="glyph" aria-hidden="true">▤</span> Runs
+              <span class="glyph" aria-hidden="true">▶</span> Runs
             </a>
             <a
               class=${this.navClass("compare")}
@@ -132,7 +138,7 @@ export class App extends LitElement {
                 navigate("/compare");
               }}
             >
-              <span class="glyph" aria-hidden="true">◈</span> Compare
+              <span class="glyph" aria-hidden="true">≋</span> Compare
             </a>
           </nav>
         </aside>
@@ -162,7 +168,7 @@ export class App extends LitElement {
               <broadside-health-badge></broadside-health-badge>
               <button
                 class="theme-btn"
-                @click=${toggleTheme}
+                @click=${this.onToggleTheme}
                 title=${dark ? "switch to light" : "switch to dark"}
                 aria-label="Toggle theme"
               >
@@ -216,7 +222,6 @@ export class App extends LitElement {
       align-items: center;
       gap: var(--s-2);
       padding: var(--s-4) var(--s-3);
-      border-bottom: 1px solid var(--rule);
       font-family: var(--font-mono);
     }
     .brand-img {
@@ -225,10 +230,10 @@ export class App extends LitElement {
       flex: none;
     }
     .brand-name {
-      font-size: var(--step-0);
-      font-weight: 500;
+      font-size: var(--step-1);
+      font-weight: 600;
       color: var(--text);
-      letter-spacing: 0.02em;
+      letter-spacing: 0.01em;
     }
     nav {
       display: flex;
@@ -238,7 +243,8 @@ export class App extends LitElement {
     }
     .glyph {
       font-family: var(--font-mono);
-      font-size: var(--step--1);
+      font-size: var(--step-0);
+      line-height: 1;
     }
     .glyph-large {
       font-size: var(--step-1);
@@ -246,13 +252,14 @@ export class App extends LitElement {
     .nav-item {
       display: flex;
       align-items: center;
-      gap: var(--s-2);
+      gap: var(--s-3);
       padding: var(--s-2) var(--s-3);
       border-radius: var(--radius);
       color: var(--text-dim);
       text-decoration: none;
       font-family: var(--font-mono);
-      font-size: var(--step--1);
+      font-size: var(--step-1);
+      font-weight: 500;
       border: 1px solid transparent;
       transition: all var(--dur-fast) var(--ease);
     }
