@@ -54,6 +54,13 @@ pnpm task setup
 - Database and Kafka dependencies are mocked. Unit tests do not require a running TimescaleDB.
 - `src/index.ts`, `src/gen/**`, and `src/lib/fplib/**` are excluded from coverage. `src/index.ts` starts real servers and exits the process.
 
+## Logging
+
+- Use the shared Pino logger from `src/logger.ts`. Do not add `console.*` calls in `src/`.
+- `@hono/structured-logger` logs each HTTP request with `method`, `path`, `status`, and `durationMs`, and logs unhandled errors with `{ err }`.
+- Pass errors as `logger.error({ err }, "message")` so Pino serializes the stack trace.
+- `LOG_LEVEL` controls verbosity; `LOG_PRETTY=true` enables `pino-pretty` for local development.
+
 ## Build and CI
 
 - CI runs `pnpm task proto:check`, `pnpm task lint`, `pnpm test:coverage`, and its server build step.

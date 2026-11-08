@@ -1,11 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { sqlMock } = vi.hoisted(() => ({ sqlMock: vi.fn() }));
+const h = vi.hoisted(() => ({
+  sqlMock: vi.fn(),
+  logger: { error: vi.fn() },
+}));
+const { sqlMock } = h;
 
 vi.mock("../src/config.js", () => ({
   config: { ring: { capacity: 4, batchSize: 2, flushIntervalMs: 1000 } },
 }));
-vi.mock("../src/db/client.js", () => ({ sql: sqlMock }));
+vi.mock("../src/db/client.js", () => ({ sql: h.sqlMock }));
+vi.mock("../src/logger.js", () => ({ logger: h.logger }));
 
 import { MetricsFlusher } from "../src/lib/flusher.js";
 import type { MetricPoint } from "../src/types.js";
@@ -39,7 +44,6 @@ describe("MetricsFlusher", () => {
     sqlMock.mockImplementation((first: any) =>
       first?.raw ? Promise.resolve([]) : first,
     );
-    vi.spyOn(console, "error").mockImplementation(() => {});
   });
 
   afterEach(() => {
@@ -143,7 +147,11 @@ describe("MetricsFlusher", () => {
 
     flusher.ingest([point(), point()]);
 
-    await vi.waitFor(() => expect(console.error).toHaveBeenCalled());
+    await vi.waitFor(() => expect(h.logger.error).toHaveBeenCalled());
+    expect(h.logger.error).toHaveBeenCalledWith(
+      { err: expect.any(Error) },
+      "[flusher] write failed, re-queueing",
+    );
     expect(flusher.stats).toEqual({ buffered: 2, dropped: 0, flushed: 0 });
   });
 

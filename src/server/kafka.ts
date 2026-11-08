@@ -1,5 +1,6 @@
 import { Consumer, stringDeserializer, jsonDeserializer } from "@platformatic/kafka";
 import { config } from "../config.js";
+import { logger } from "../logger.js";
 import { metricsFlusher } from "../lib/flusher.js";
 import type { MetricBatch, MetricPoint } from "../types.js";
 
@@ -23,7 +24,7 @@ let stream: DashboardStream | null = null;
 
 export async function startKafkaConsumer(): Promise<void> {
   if (!config.kafka.enabled) {
-    console.log("[kafka] disabled (no KAFKA_BROKERS set)");
+    logger.info("[kafka] disabled (no KAFKA_BROKERS set)");
     return;
   }
 
@@ -43,10 +44,10 @@ export async function startKafkaConsumer(): Promise<void> {
       }
     }
   })().catch((err) => {
-    console.error("[kafka] consumer stream error", err);
+    logger.error({ err }, "[kafka] consumer stream error");
   });
 
-  console.log(`[kafka] consuming topic "${config.kafka.topic}"`);
+  logger.info({ topic: config.kafka.topic }, "[kafka] consuming topic");
 }
 
 export async function stopKafkaConsumer(): Promise<void> {

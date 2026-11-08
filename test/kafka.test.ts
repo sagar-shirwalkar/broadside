@@ -23,6 +23,7 @@ const h = vi.hoisted(() => {
     stringDeserializer: { kind: "string" },
     jsonDeserializer: vi.fn(() => ({ kind: "json" })),
     ingest: vi.fn(),
+    logger: { info: vi.fn(), error: vi.fn() },
   };
 });
 
@@ -45,6 +46,7 @@ vi.mock("../src/config.js", () => ({
 vi.mock("../src/lib/flusher.js", () => ({
   metricsFlusher: { ingest: h.ingest },
 }));
+vi.mock("../src/logger.js", () => ({ logger: h.logger }));
 
 let kafka: typeof import("../src/server/kafka.js");
 
@@ -61,13 +63,11 @@ describe("Kafka consumer", () => {
   });
 
   it("does nothing when Kafka is disabled", async () => {
-    const log = vi.spyOn(console, "log").mockImplementation(() => {});
-
     await kafka.startKafkaConsumer();
 
     expect(h.Consumer).not.toHaveBeenCalled();
     expect(h.ingest).not.toHaveBeenCalled();
-    expect(log).toHaveBeenCalledWith(
+    expect(h.logger.info).toHaveBeenCalledWith(
       "[kafka] disabled (no KAFKA_BROKERS set)",
     );
   });
@@ -92,7 +92,6 @@ describe("Kafka consumer", () => {
       },
     };
 
-    const log = vi.spyOn(console, "log").mockImplementation(() => {});
     await kafka.startKafkaConsumer();
     await consumed;
     await vi.waitFor(() => expect(h.ingest).toHaveBeenCalledTimes(1));
@@ -112,8 +111,9 @@ describe("Kafka consumer", () => {
       topics: ["artillery.metrics"],
       autocommit: true,
     });
-    expect(log).toHaveBeenCalledWith(
-      '[kafka] consuming topic "artillery.metrics"',
+    expect(h.logger.info).toHaveBeenCalledWith(
+      { topic: "artillery.metrics" },
+      "[kafka] consuming topic",
     );
 
     const consumer = h.state.consumer;
@@ -133,15 +133,12 @@ describe("Kafka consumer", () => {
       },
     };
 
-    vi.spyOn(console, "log").mockImplementation(() => {});
-    const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
-
     await kafka.startKafkaConsumer();
 
     await vi.waitFor(() =>
-      expect(errorLog).toHaveBeenCalledWith(
+      expect(h.logger.error).toHaveBeenCalledWith(
+        { err: error },
         "[kafka] consumer stream error",
-        error,
       ),
     );
   });

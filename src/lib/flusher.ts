@@ -1,6 +1,7 @@
 import { RingBuffer } from "./ring-buffer.js";
 import { config } from "../config.js";
 import { sql } from "../db/client.js";
+import { logger } from "../logger.js";
 import type { MetricPoint } from "../types.js";
 
 export class MetricsFlusher {
@@ -68,7 +69,7 @@ export class MetricsFlusher {
       `;
       this.totalFlushed += batch.length;
     } catch (err) {
-      console.error("[flusher] write failed, re-queueing", err);
+      logger.error({ err }, "[flusher] write failed, re-queueing");
       this.ring.pushBatch(batch);
     }
 

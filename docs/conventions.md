@@ -39,6 +39,12 @@
 - Add new variables to `.env.example` and document them in the README configuration table.
 - Never commit `.env` or secrets.
 
+## Logging
+
+- Use the shared Pino logger from `src/logger.ts`; do not use `console.*` in server code.
+- Pass errors as `{ err }` so Pino serializes them: `logger.error({ err }, "message")`.
+- Request logging is handled by `@hono/structured-logger` in `src/server/app.ts`.
+
 ## Quality gates
 
 - Tests use Vitest and Hono's `testClient`. Run `pnpm test` or `pnpm test:coverage` before finishing changes. Keep coverage at or above the 80% gate.

@@ -324,11 +324,19 @@ All configuration is read in `src/config.ts` from environment variables (loaded 
 | --- | --- | --- |
 | `PORT` | `3000` | REST/WebSocket port. gRPC listens on `PORT + 1`. |
 | `DATABASE_URL` | — (required) | Postgres/TimescaleDB connection string. |
+| `LOG_LEVEL` | `info` | Pino log level (`trace`, `debug`, `info`, `warn`, `error`, `fatal`, `silent`). |
+| `LOG_PRETTY` | `false` | Set to `true` to format logs with `pino-pretty` for local development. |
 | `KAFKA_BROKERS` | empty (disabled) | Comma-separated Kafka brokers. Setting this enables the consumer. |
 | `KAFKA_TOPIC` | `artillery.metrics` | Kafka topic to consume. |
 | `RING_CAPACITY` | `16384` | Ring buffer capacity. Rounded up to the next power of two. |
 | `FLUSH_BATCH_SIZE` | `5000` | Maximum points per database insert, and the size that triggers an early flush. |
 | `FLUSH_INTERVAL_MS` | `500` | How often the flusher drains the ring buffer. |
+
+### Logging
+
+The server emits structured JSON logs with [Pino](https://getpino.io/). Hono's [`@hono/structured-logger`](https://github.com/honojs/middleware/tree/main/packages/structured-logger) middleware writes one entry per request with `method`, `path`, `status`, and `durationMs`; unhandled errors are logged with the serialized `err`. Application code uses the shared `logger` from `src/logger.ts` rather than `console`.
+
+Set `LOG_PRETTY=true` for human-readable local logs. The production default is JSON.
 
 ### Commands
 
@@ -354,6 +362,7 @@ All configuration is read in `src/config.ts` from environment variables (loaded 
 src/
   index.ts              # HTTP/WS + HTTP/2 gRPC bootstrap
   config.ts             # environment configuration
+  logger.ts             # shared Pino logger
   types.ts              # shared domain types
   server/
     app.ts              # Hono app, /ws ingestion, route mounting

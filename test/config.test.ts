@@ -5,6 +5,8 @@ vi.mock("dotenv", () => ({ config: vi.fn() }));
 const envKeys = [
   "PORT",
   "DATABASE_URL",
+  "LOG_LEVEL",
+  "LOG_PRETTY",
   "KAFKA_BROKERS",
   "KAFKA_TOPIC",
   "RING_CAPACITY",
@@ -30,6 +32,10 @@ describe("config", () => {
     expect(config).toEqual({
       port: 3000,
       databaseUrl: undefined,
+      log: {
+        level: "info",
+        pretty: false,
+      },
       kafka: {
         enabled: false,
         brokers: [],
@@ -46,6 +52,8 @@ describe("config", () => {
   it("reads overrides from the environment", async () => {
     process.env.PORT = "4000";
     process.env.DATABASE_URL = "postgres://user:pass@db:5432/broadside";
+    process.env.LOG_LEVEL = "debug";
+    process.env.LOG_PRETTY = "true";
     process.env.KAFKA_BROKERS = "broker-a:9092,broker-b:9092";
     process.env.KAFKA_TOPIC = "custom.metrics";
     process.env.RING_CAPACITY = "256";
@@ -57,6 +65,10 @@ describe("config", () => {
     expect(config).toEqual({
       port: 4000,
       databaseUrl: "postgres://user:pass@db:5432/broadside",
+      log: {
+        level: "debug",
+        pretty: true,
+      },
       kafka: {
         enabled: true,
         brokers: ["broker-a:9092", "broker-b:9092"],

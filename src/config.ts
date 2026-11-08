@@ -5,6 +5,11 @@ export const config = {
   port: parseInt(process.env.PORT ?? "3000", 10),
   databaseUrl: process.env.DATABASE_URL!,
 
+  log: {
+    level: process.env.LOG_LEVEL ?? "info",
+    pretty: process.env.LOG_PRETTY === "true",
+  },
+
   kafka: {
     enabled: Boolean(process.env.KAFKA_BROKERS),
     brokers: process.env.KAFKA_BROKERS?.split(",") ?? [],

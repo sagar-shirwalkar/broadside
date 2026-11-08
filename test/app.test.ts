@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const h = vi.hoisted(() => ({
   state: { factory: null as null | (() => any) },
   ingest: vi.fn(),
+  logger: { info: vi.fn(), error: vi.fn() },
 }));
 
 vi.mock("@hono/node-server", () => ({
@@ -20,6 +21,7 @@ vi.mock("../src/lib/flusher.js", () => ({
 vi.mock("../src/db/client.js", () => ({
   sql: vi.fn().mockResolvedValue([]),
 }));
+vi.mock("../src/logger.js", () => ({ logger: h.logger }));
 
 import { testClient } from "hono/testing";
 import { createApp } from "../src/server/app.js";
@@ -120,16 +122,43 @@ describe("createApp", () => {
     );
   });
 
-  it("mounts the REST API routes", async () => {
+  it("mounts the REST API routes and logs requests", async () => {
     const app = createApp();
     const client = testClient(app) as any;
 
     const health = await client.api.health.$get();
     expect(health.status).toBe(200);
     expect(await health.json()).toMatchObject({ status: "ok" });
+    expect(h.logger.info).toHaveBeenCalledWith(
+      expect.objectContaining({
+        method: "GET",
+        path: "/api/health",
+        status: 200,
+      }),
+      "request completed",
+    );
 
     const runs = await client.api.runs.$get();
     expect(runs.status).toBe(200);
     expect(await runs.json()).toEqual([]);
+  });
+
+  it("logs unhandled route errors", async () => {
+    const app = createApp();
+    app.get("/boom", () => {
+      throw new Error("boom");
+    });
+
+    const res = await app.request("/boom");
+
+    expect(res.status).toBe(500);
+    expect(h.logger.error).toHaveBeenCalledWith(
+      expect.objectContaining({
+        err: expect.any(Error),
+        method: "GET",
+        path: "/boom",
+      }),
+      "request failed",
+    );
   });
 });

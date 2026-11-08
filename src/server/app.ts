@@ -1,12 +1,42 @@
 import { Hono } from "hono";
 import { upgradeWebSocket } from "@hono/node-server";
+import { structuredLogger } from "@hono/structured-logger";
+import { logger, type AppEnv } from "../logger.js";
 import { normalizeBatch } from "../lib/normalize.js";
 import { metricsFlusher } from "../lib/flusher.js";
 import runs from "./routes/runs.js";
 import health from "./routes/health.js";
 
-export function createApp(): Hono {
-  const app = new Hono();
+export function createApp(): Hono<AppEnv> {
+  const app = new Hono<AppEnv>();
+
+  app.use(
+    structuredLogger<AppEnv, typeof logger>({
+      createLogger: () => logger,
+      onResponse: (log, c, elapsedMs) => {
+        log.info(
+          {
+            method: c.req.method,
+            path: c.req.path,
+            status: c.res.status,
+            durationMs: Math.round(elapsedMs),
+          },
+          "request completed",
+        );
+      },
+      onError: (log, err, c, elapsedMs) => {
+        log.error(
+          {
+            err,
+            method: c.req.method,
+            path: c.req.path,
+            durationMs: Math.round(elapsedMs),
+          },
+          "request failed",
+        );
+      },
+    }),
+  );
 
   // WebSocket ingestion
   app.get("/ws", upgradeWebSocket(() => ({

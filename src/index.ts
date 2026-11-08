@@ -7,6 +7,7 @@ import { routes as connectRoutes } from "./server/grpc.js";
 import { startKafkaConsumer, stopKafkaConsumer } from "./server/kafka.js";
 import { metricsFlusher } from "./lib/flusher.js";
 import { config } from "./config.js";
+import { logger } from "./logger.js";
 
 async function main() {
   metricsFlusher.start();
@@ -28,17 +29,21 @@ async function main() {
   );
   grpcServer.listen(config.port + 1);
 
-  console.log(`[server] REST + WS  → :${config.port}`);
-  console.log(`[server] gRPC       → :${config.port + 1}`);
-  console.log(`[server] kafka: ${config.kafka.enabled ? "enabled" : "disabled"}`);
+  logger.info({ port: config.port }, "[server] REST + WebSocket listening");
+  logger.info({ port: config.port + 1 }, "[server] gRPC listening");
+  logger.info(
+    { enabled: config.kafka.enabled },
+    `[server] kafka: ${config.kafka.enabled ? "enabled" : "disabled"}`,
+  );
 
   const shutdown = async () => {
-    console.log("\n[server] shutting down...");
+    logger.info("[server] shutting down");
     metricsFlusher.stop();
     await stopKafkaConsumer();
     wss.close();
     server.close();
     grpcServer.close();
+    logger.flush();
     process.exit(0);
   };
 
@@ -47,6 +52,7 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error("[server] fatal", err);
+  logger.error({ err }, "[server] fatal");
+  logger.flush();
   process.exit(1);
 });

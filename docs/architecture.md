@@ -8,7 +8,8 @@ Broadside is a Node/TypeScript service that ingests Artillery-style metric point
 
 - `src/index.ts` starts the global `metricsFlusher`, the optional Kafka consumer, the Hono server on `PORT` (default `3000`) for REST + WebSocket, and a Node HTTP/2 Connect server on `PORT + 1` (default `3001`).
 - Graceful shutdown stops the flusher, Kafka consumer, WebSocket server, HTTP server, and HTTP/2 server.
-- `src/config.ts` is the only place that reads `process.env`. Ports, DB URL, Kafka settings, and ring-buffer tuning live there.
+- `src/config.ts` is the only place that reads `process.env`. Ports, DB URL, Kafka settings, logging, and ring-buffer tuning live there.
+- `src/logger.ts` configures the shared Pino logger. `@hono/structured-logger` logs one entry per HTTP request and reports unhandled route errors.
 
 ## Ingestion paths
 
@@ -69,6 +70,7 @@ Only `1m`, `1h`, and `1d` are valid granularities. The view name is selected wit
 | `src/server/kafka.ts` | Optional Kafka consumer lifecycle. |
 | `src/server/routes/runs.ts` | Run and metric query endpoints. |
 | `src/server/routes/health.ts` | Health endpoint. |
+| `src/logger.ts` | Shared Pino logger and Hono `AppEnv` logger typing. |
 | `src/lib/normalize.ts` | JSON payload normalization and alias handling. |
 | `src/lib/ring-buffer.ts` | Fixed-capacity drop-oldest ring buffer. |
 | `src/lib/flusher.ts` | Buffered batch writes to TimescaleDB. |
