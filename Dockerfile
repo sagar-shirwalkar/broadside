@@ -1,4 +1,4 @@
-FROM node:22-alpine AS base
+FROM node:26-alpine AS base
 RUN corepack enable
 
 WORKDIR /app
@@ -23,7 +23,7 @@ RUN pnpm build
 RUN cd ui && pnpm build
 
 # Production
-FROM node:22-alpine
+FROM node:26-alpine
 RUN corepack enable
 WORKDIR /app
 
