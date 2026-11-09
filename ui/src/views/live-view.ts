@@ -206,7 +206,7 @@ export class LiveView extends LitElement {
       <div class="page">
         <div class="header">
           <div class="title-block">
-            <button class="link-btn" @click=${() => navigate("/")}>
+            <button class="link-btn" @click=${() => navigate("/runs")}>
               ← runs
             </button>
             <h3 class="mono">${this.runId.slice(0, 8)}</h3>

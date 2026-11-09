@@ -8,7 +8,7 @@ Broadside is a Node/TypeScript service that ingests Artillery-style metric point
 
 - `src/index.ts` starts the global `metricsFlusher`, the optional Kafka consumer, the Hono server on `PORT` (default `3000`) for REST + WebSocket, and a Node HTTP/2 Connect server on `PORT + 1` (default `3001`).
 - Graceful shutdown stops the flusher, Kafka consumer, WebSocket server, HTTP server, and HTTP/2 server.
-- `src/config.ts` is the only place that reads `process.env`. Ports, DB URL, Kafka settings, logging, report storage, and ring-buffer tuning live there.
+- `src/config.ts` is the only place that reads `process.env`. Ports, DB URL, Kafka settings, logging, report storage, SLO thresholds, and ring-buffer tuning live there.
 - Orchestrated runs require an `artillery` binary on `PATH`. Broadside does not bundle it.
 - `src/logger.ts` configures the shared Pino logger. `@hono/structured-logger` logs one entry per HTTP request and reports unhandled route errors.
 
@@ -72,7 +72,7 @@ Rules:
 1. `@hono/structured-logger` — one log line per request.
 2. `hono/cors` — answers `OPTIONS` preflights itself and tags responses with `Access-Control-Allow-Origin` for origins in `CORS_ORIGINS` (default: the Vite dev server). CORS runs first so preflights, which never carry credentials, are not rejected by auth.
 3. Bearer authentication (`src/server/middleware/auth.ts`) on `/api/runs/*` and `/ws`. An empty `API_TOKEN` disables it. The token is compared in constant time (`crypto.timingSafeEqual`); a missing or wrong token gets `401` with `WWW-Authenticate: Bearer`. WebSocket/SSE clients that cannot set headers may pass `?token=` instead.
-4. Routes: `/ws` (upgrade + ingest), `/api/runs`, `/api/health`.
+4. Routes: `/ws` (upgrade + ingest), `/api/runs`, `/api/health`, `/api/overview`.
 
 `/api/health` is deliberately public: it runs `SELECT 1` against the database and reports `database.status`, returning `503` with `status: "degraded"` when the database is unreachable, so container orchestrators and monitors can distinguish "process up" from "database down". The gRPC port has no token check.
 
@@ -83,6 +83,7 @@ After the API routes, `@hono/node-server`'s `serveStatic` serves the built dashb
 Run and metric endpoints (`src/server/routes/runs.ts`):
 
 - `GET /api/runs` — paginated runs from `runs`, newest first. `limit` defaults to 100 (1–100); `offset` defaults to 0.
+- `GET /api/overview` — dashboard landing-page aggregates in one response: SLO status (p95 and error-rate met-rates over the last `SLO_WINDOW_RUNS` completed runs), per-run p95/error-rate trend from `metrics_1d` grouped by `run_id` (30 days), run frequency (`date_trunc('day')`), worst endpoints by average p95 (30 days, excluding the aggregate row), regression alerts (latest run's per-endpoint p95 vs. the rolling median of the previous runs, flagged above `SLO_REGRESSION_DELTA`), and the 5 most recent runs.
 - `GET /api/runs/compare` — metadata plus one metric series per run for overlay charts. Requires `ids` with 2–10 comma-separated ids, de-duplicated; returns `400` otherwise. Registered before `/:id` so the static path wins.
 - `GET /api/runs/:id` — one run or `404`.
 - `GET /api/runs/:id/endpoints` — distinct non-aggregate endpoints in a run with sample counts, for dashboard filter tabs.
@@ -94,7 +95,7 @@ Run and metric endpoints (`src/server/routes/runs.ts`):
 
 `src/server/routes/health.ts` exposes `GET /api/health` with uptime, a `SELECT 1` database check (`200`/`503`), and flusher stats (`buffered`, `dropped`, `flushed`). It is unauthenticated by design.
 
-Only `1m`, `1h`, and `1d` are valid granularities. The view name is selected with `sql.identifier`, so do not pass unvalidated user input into it. Run ids for `/compare` are bound as values (`id = ANY(${ids})` via `sql` with an array), never interpolated into the query text.
+Only `10s`, `1m`, `1h`, and `1d` are valid granularities. The view name is selected with `sql.identifier`, so do not pass unvalidated user input into it. Run ids for `/compare` are bound as values (`id = ANY(${ids})` via `sql` with an array), never interpolated into the query text.
 
 ### Live stream
 

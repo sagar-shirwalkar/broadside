@@ -68,4 +68,15 @@ export const config = {
     batchSize: parseInt(process.env.FLUSH_BATCH_SIZE ?? "5000", 10),
     flushIntervalMs: parseInt(process.env.FLUSH_INTERVAL_MS ?? "500", 10),
   },
+
+  slo: {
+    // Overview SLO thresholds. The SLO strip marks a run as "meeting"
+    // the SLO when its aggregate p95 / error rate stays under these
+    // values; the strip reports the share over the last SLO_WINDOW runs.
+    p95Ms: Number(process.env.SLO_P95_MS ?? "400"),
+    errorRate: Number(process.env.SLO_ERROR_RATE ?? "0.01"),
+    windowRuns: parseInt(process.env.SLO_WINDOW_RUNS ?? "30", 10),
+    /** Fail when met > window*1.2 of the rolling median (regression panel). */
+    regressionDelta: Number(process.env.SLO_REGRESSION_DELTA ?? "1.2"),
+  },
 } as const;

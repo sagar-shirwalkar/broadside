@@ -382,7 +382,7 @@ export class RunDetail extends LitElement {
         method: "DELETE",
       });
       this.confirmOpen = false;
-      navigate("/");
+      navigate("/runs");
     } finally {
       this.confirmBusy = false;
     }
@@ -418,7 +418,7 @@ export class RunDetail extends LitElement {
       <div class="page">
         <div class="header">
           <div class="title-block">
-            <button class="link-btn" @click=${() => navigate("/")}>
+            <button class="link-btn" @click=${() => navigate("/runs")}>
               ← runs
             </button>
             <h3 class="mono">${run.id.slice(0, 8)}</h3>

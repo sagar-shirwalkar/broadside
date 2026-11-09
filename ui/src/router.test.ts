@@ -2,9 +2,14 @@ import { describe, expect, it } from "vitest";
 import { parseHash } from "./router.js";
 
 describe("parseHash", () => {
-  it("maps the root hash to the run list", () => {
-    expect(parseHash("#/")).toEqual({ name: "list" });
-    expect(parseHash("")).toEqual({ name: "list" });
+  it("maps the root hash to the overview", () => {
+    expect(parseHash("#/")).toEqual({ name: "overview" });
+    expect(parseHash("")).toEqual({ name: "overview" });
+  });
+
+  it("parses the overview and runs routes", () => {
+    expect(parseHash("#/overview")).toEqual({ name: "overview" });
+    expect(parseHash("#/runs")).toEqual({ name: "list" });
   });
 
   it("parses a run detail route", () => {
@@ -36,11 +41,8 @@ describe("parseHash", () => {
     });
   });
 
-  it("falls back to not-found for incomplete run paths", () => {
-    expect(parseHash("#/runs")).toEqual({
-      name: "not-found",
-      path: "/runs",
-    });
+  it("maps bare /runs (no id) to the run list", () => {
+    expect(parseHash("#/runs")).toEqual({ name: "list" });
   });
 
   it("treats extra segments as not-found", () => {

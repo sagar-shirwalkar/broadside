@@ -8,6 +8,7 @@ import type { RunStatus } from "./types.js";
 import "./components/health-badge.js";
 import "./components/trigger-dialog.js";
 import "./views/login.js";
+import "./views/overview-view.js";
 import "./views/run-list.js";
 import "./views/run-detail.js";
 import "./views/live-view.js";
@@ -69,6 +70,7 @@ export class App extends LitElement {
 
   private topbarTitle(): string {
     const name = this.route.name;
+    if (name === "overview") return "Overview";
     if (name === "compare") return "Compare Artillery Runs";
     if (name === "detail" || name === "live") return "Artillery Run Status";
     return "Artillery Runs";
@@ -77,6 +79,8 @@ export class App extends LitElement {
   private view() {
     const route = this.route;
     switch (route.name) {
+      case "overview":
+        return html`<broadside-overview-view></broadside-overview-view>`;
       case "list":
         return html`<broadside-run-list></broadside-run-list>`;
       case "detail":
@@ -125,11 +129,21 @@ export class App extends LitElement {
           </button>
           <nav>
             <a
-              class=${this.navClass("list")}
+              class=${this.navClass("overview")}
               href="#/"
               @click=${(e: Event) => {
                 e.preventDefault();
                 navigate("/");
+              }}
+            >
+              <span class="glyph" aria-hidden="true">◆</span> Overview
+            </a>
+            <a
+              class=${this.navClass("list")}
+              href="#/runs"
+              @click=${(e: Event) => {
+                e.preventDefault();
+                navigate("/runs");
               }}
             >
               <span class="glyph" aria-hidden="true">▶</span> Runs

@@ -70,6 +70,12 @@ describe("config", () => {
         batchSize: 5000,
         flushIntervalMs: 500,
       },
+      slo: {
+        p95Ms: 400,
+        errorRate: 0.01,
+        windowRuns: 30,
+        regressionDelta: 1.2,
+      },
     });
   });
 
@@ -90,6 +96,10 @@ describe("config", () => {
     process.env.RING_CAPACITY = "256";
     process.env.FLUSH_BATCH_SIZE = "128";
     process.env.FLUSH_INTERVAL_MS = "250";
+    process.env.SLO_P95_MS = "650";
+    process.env.SLO_ERROR_RATE = "0.05";
+    process.env.SLO_WINDOW_RUNS = "50";
+    process.env.SLO_REGRESSION_DELTA = "1.5";
 
     const { config } = await import("../src/config.js");
 
@@ -126,6 +136,12 @@ describe("config", () => {
         capacity: 256,
         batchSize: 128,
         flushIntervalMs: 250,
+      },
+      slo: {
+        p95Ms: 650,
+        errorRate: 0.05,
+        windowRuns: 50,
+        regressionDelta: 1.5,
       },
     });
   });

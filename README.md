@@ -58,7 +58,7 @@ Broadside supports shared-secret Bearer authentication for the REST API (includi
 4. Pre-aggregates them into `1m`, `1h`, and `1d` rollups.
 5. Exposes the data through a simple REST API.
 
-The dashboard lives in `ui/` (Lit + Shoelace + Vite) and talks to the same REST API described below; it does not change the ingestion contract.
+The dashboard lives in `ui/` (Lit + Vite) and talks to the same REST API described below; it does not change the ingestion contract. Pages: **Overview** (`#/`, drift detection), **Runs** (`#/runs`), **Compare** (`#/compare`), and run detail (`#/runs/:id`).
 
 ## Install
 
@@ -177,6 +177,15 @@ No global `task` or `buf` install is required; both come from dev dependencies.
 ## Usage
 
 ### Start the server
+
+```bash
+pnpm task dev:full      # API on :3000 + dashboard on :5173
+```
+
+The dashboard opens on the **Overview** page (`#/`): SLO status, the
+per-run p95/error-rate trend, run frequency, worst endpoints, recent
+runs, and regression alerts. Use the sidebar for **Runs** (`#/runs`),
+**Compare** (`#/compare`), or a run detail page (`#/runs/:id`).
 
 ```bash
 pnpm task dev      # REST + WebSocket on :3000, gRPC on :3001
@@ -371,6 +380,7 @@ curl -s "http://localhost:3000/api/runs/run-123/raw?from=2026-01-01T00:00:00Z"
 | `POST` | `/api/runs` | Start an Artillery run with `{ "script_path": "...", "id"?, "config"?, "extra_args"? }`. |
 | `DELETE` | `/api/runs/:id` | Kill a running run, or delete a finished run and its metrics. |
 | `GET` | `/api/health` | Health, uptime, database check, and flusher statistics. Public (no token). Returns `503` when the database is unreachable. |
+| `GET` | `/api/overview` | Overview dashboard aggregates: SLO status (p95/error-rate met-rates over the last `SLO_WINDOW_RUNS` runs), 30-day per-run trends, run frequency, worst endpoints, regression alerts, and the 5 most recent runs. |
 | `WS` | `/ws` | JSON metric ingestion. |
 
 When `API_TOKEN` is set, the REST endpoints under `/api/runs` (including the SSE stream) and `/ws` require `Authorization: Bearer <token>`; `/api/health` does not. See [Security](#security).
@@ -521,6 +531,10 @@ All configuration is read in `src/config.ts` from environment variables (loaded 
 | `RING_CAPACITY` | `16384` | Ring buffer capacity. Rounded up to the next power of two. |
 | `FLUSH_BATCH_SIZE` | `5000` | Maximum points per database insert, and the size that triggers an early flush. |
 | `FLUSH_INTERVAL_MS` | `500` | How often the flusher drains the ring buffer. |
+| `SLO_P95_MS` | `400` | Headline p95 target for the Overview SLO strip ("p95 < 400ms: met in X% of last runs"). |
+| `SLO_ERROR_RATE` | `0.01` | Error-ratio target for the Overview SLO strip (0.01 = 1%). |
+| `SLO_WINDOW_RUNS` | `30` | How many recent completed runs back the SLO met-rate. |
+| `SLO_REGRESSION_DELTA` | `1.2` | Regression alert threshold: latest run's p95 > rolling median × this factor (1.2 = +20%). |
 
 ### Logging
 
