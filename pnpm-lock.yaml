@@ -188,8 +188,8 @@ importers:
         specifier: ^4.6.7
         version: 4.6.7(zod@4.6.7)
       dotenv:
-        specifier: ^16.4.0
-        version: 16.6.1
+        specifier: ^18.0.9
+        version: 18.0.9
       hono:
         specifier: ^4.13.0
         version: 4.13.16
@@ -981,9 +981,10 @@ packages:
     resolution: {integrity: sha512-Btj2BOOO83o3WyH59e8MgXsxEQVcarkUOpEYrubB0urwnN10yQ364rsiByU11nZlqWYZm05i/of7io4mzihBtQ==}
     engines: {node: '>=8'}
 
-  dotenv@16.6.1:
-    resolution: {integrity: sha512-uBq4egWHTcTt33a72vpSG0z3HnPuIl6NqYcTrKEg2azoEyl2hpW0zqlxysq2pK9HlDIHyHyakeYaYnSAwd8bow==}
+  dotenv@18.0.9:
+    resolution: {integrity: sha512-3fVOW4cB02R066PUSwn8O4TJyz9NckQl7F81blIbaq9jKBm2tSmOKky7ZHIXzGvkVPXCSn6jkpziBPZdGFs8Tw==}
     engines: {node: '>=12'}
+    hasBin: true
 
   end-of-stream@1.4.5:
     resolution: {integrity: sha512-ooEGc6HP26xXq/N+GCGOT0JKCLDGrq2bQUZrQ7gyrJiZANJ/8YDTxTpQBXGMn+WbIQXNVpyWymm7KYVICQnyOg==}
@@ -2035,7 +2036,7 @@ snapshots:
 
   detect-libc@2.1.2: {}
 
-  dotenv@16.6.1: {}
+  dotenv@18.0.9: {}
 
   end-of-stream@1.4.5:
     dependencies:
