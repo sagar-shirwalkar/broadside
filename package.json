@@ -44,7 +44,7 @@
     "@bufbuild/buf": "^1.72.0",
     "@bufbuild/protoc-gen-es": "^2.16.0",
     "@go-task/cli": "^3.52.0",
-    "@types/node": "^24.19.2",
+    "@types/node": "^26.6.6",
     "@types/ws": "^8.5.13",
     "@vitest/coverage-v8": "^5.1.0",
     "fast-check": "^4.10.2",
