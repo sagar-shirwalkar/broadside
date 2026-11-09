@@ -1,6 +1,10 @@
 # Broadside
 
-[![License: MPL-2.0](https://img.shields.io/badge/License-MPL_2.0-brightgreen.svg)](LICENSE)
+[![Lit](https://img.shields.io/badge/Lit-324FFF?style=for-the-badge&logo=Lit&logoColor=white)](LIT)
+[![Hono](https://img.shields.io/badge/hono-E36002?style=for-the-badge&logo=hono&logoColor=white)](HONO)
+[![TimescaleDB](https://img.shields.io/badge/TimescaleDB-003B77?style=for-the-badge&logo=timescale&logoColor=white)](TIMESCALEDB)
+[![GitHub License](https://img.shields.io/github/license/sagar-shirwalkar/broadside?style=for-the-badge&color=purple)](LICENSE)
+[![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/sagar-shirwalkar/broadside/ci.yml?style=for-the-badge&labelColor=black)](BUILD)
 
 Dashboard for Artillery-generated data.
 

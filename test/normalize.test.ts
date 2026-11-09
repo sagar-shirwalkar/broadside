@@ -112,4 +112,32 @@ describe("normalizeBatch", () => {
 
     expect(points[0]?.runId).toBe("");
   });
+
+  it("rejects a message whose points field is not an array", () => {
+    expect(() =>
+      normalizeBatch({ run_id: "run-1", points: "not-an-array" }),
+    ).toThrow(TypeError);
+  });
+
+  it("rejects a non-object message", () => {
+    expect(() => normalizeBatch(42 as unknown as object)).toThrow(TypeError);
+    expect(() => normalizeBatch("hello" as unknown as object)).toThrow(TypeError);
+    expect(() => normalizeBatch(null as unknown as object)).toThrow(TypeError);
+  });
+
+  it("rejects wrongly-typed scalars", () => {
+    expect(() => normalizePoint({ run_id: 42 })).toThrow(TypeError);
+    expect(() => normalizePoint({ rps: "abc" })).toThrow(TypeError);
+    expect(() => normalizePoint({ time_ms: "not-a-time" })).toThrow(TypeError);
+    expect(() => normalizePoint({ rps: Number.NaN })).toThrow(TypeError);
+    expect(() => normalizePoint({ p95: "fast" })).toThrow(TypeError);
+  });
+
+  it("accepts numeric strings but rejects truly invalid numbers", () => {
+    const point = normalizePoint({ rps: "2.5", p95: "300" });
+    expect(point.rps).toBe(2.5);
+    expect(point.p95).toBe(300);
+
+    expect(() => normalizePoint({ rps: "Infinity" })).toThrow(TypeError);
+  });
 });

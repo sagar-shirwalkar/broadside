@@ -16,7 +16,7 @@ Broadside is a Node/TypeScript service that ingests Artillery-style metric point
 
 | Path | Entry point | Input | Notes |
 | --- | --- | --- | --- |
-| WebSocket `/ws` | `src/server/app.ts` | JSON `{ run_id, points[] }` or a single point | Normalized by `normalizeBatch` before ingestion. Invalid JSON returns an error message to the client. |
+| WebSocket `/ws` | `src/server/app.ts` | JSON `{ run_id, points[] }` or a single point | Validated by `normalizeBatch` (`@zod/mini` schemas) before ingestion; malformed shapes raise `TypeError`, surfaced to the client as `"invalid message"`. |
 | Connect/gRPC | `src/server/grpc.ts` | `MetricBatch` protobuf messages | `StreamMetrics` is client-streaming; `PushMetrics` is unary. Proto types are mapped to domain `MetricPoint`s. |
 | Kafka | `src/server/kafka.ts` | JSON `MetricBatch` | Enabled only when `KAFKA_BROKERS` is set. Consumes `KAFKA_TOPIC` (default `artillery.metrics`). |
 | REST `POST /api/runs` | `src/server/routes/runs.ts` | `{ id?, script_path, config?, extra_args? }` | Inserts a `running` row and spawns `artillery run`. The report is parsed into `MetricPoint`s when Artillery exits, then fed to the flusher. |

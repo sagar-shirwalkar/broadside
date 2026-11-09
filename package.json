@@ -32,6 +32,7 @@
     "@hono/node-server": "^2.1.5",
     "@hono/structured-logger": "^1.0.0",
     "@platformatic/kafka": "^2.11.0",
+    "@zod/mini": "^4.6.7",
     "dotenv": "^16.4.0",
     "hono": "^4.13.0",
     "pino": "^10.4.0",
