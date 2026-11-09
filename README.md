@@ -57,6 +57,9 @@ The dashboard lives in `ui/` (Lit + Shoelace + Vite) and talks to the same REST 
 - [Node.js](https://nodejs.org/) 22+ (the Docker image uses Node 22; CI uses Node 24)
 - [pnpm](https://pnpm.io/) 12.18+
 - [Docker](https://docs.docker.com/get-docker/) and Docker Compose (for TimescaleDB)
+  - Pull the TimescaleDB image ahead of time, e.g. to verify the CLI path works or to force an update instead of waiting for Compose:
+    `docker pull timescale/timescaledb:latest-pg16`
+    (`pnpm task db:up` pulls it implicitly on first run if it's missing.)
 - `psql` on your `PATH` for `pnpm task db:init`
 - Ports `3000` (REST/WebSocket) and `3001` (gRPC) available
 - The [`artillery`](https://www.artillery.io/docs/get-started/install) CLI on your `PATH` if you want to launch runs through `POST /api/runs`
@@ -95,13 +98,57 @@ No global `task` or `buf` install is required; both come from dev dependencies.
    | DB wait | `pnpm task db:wait` | Polls `pg_isready` until the database accepts connections. |
    | DB init | `pnpm task db:init` | Applies `src/db/schema.sql` with `psql`. |
 
-4. Verify that the service is healthy:
+   `pnpm task setup` implies only the Docker database is started —
+   **it does not start the API server or the dashboard.** If the
+   database is ever stopped, bring it back with:
+
+   ```bash
+   pnpm task db:up        # docker compose up db -d
+   pnpm task db:wait      # wait until pg_isready passes
+   pnpm task db:init      # safe to re-run (schema is idempotent)
+   ```
+
+   Stop it with `pnpm task db:down`. The database also starts
+   automatically as part of the full Docker stack
+   (`pnpm task docker:up`).
+
+4. Start the services:
+
+   **Development** (server + Vite dashboard, side by side):
+
+   ```bash
+   pnpm task dev:full
+   ```
+
+   (`pnpm task dev` runs only the API server on `:3000` and gRPC on
+   `:3001`; `pnpm task ui:dev` runs only the dashboard dev server on
+   `:5173`, which proxies `/api` to `:3000`.)
+
+   **Production** (single built artifact, no watch mode):
+
+   ```bash
+   pnpm task build          # server + dashboard (ui/dist)
+   pnpm task db:up          # make sure TimescaleDB is running
+   node dist/server.js      # or: pnpm task docker:up (server + DB + UI in Docker)
+   ```
+
+   The API server serves the built dashboard from `ui/dist` itself, so
+   one process covers both; set `UI_DIST_DIR` to serve from elsewhere.
+   In production you normally run the Docker stack:
+
+   ```bash
+   docker compose up --build -d   # dashboard + db
+   docker compose logs -f         # tail logs
+   docker compose down            # stop everything
+   ```
+
+5. Verify that the service is healthy:
+
+   Wait for the API server to print its "listening" line, then:
 
    ```bash
    curl -s http://localhost:3000/api/health
    ```
-
-   A healthy response looks like:
 
    ```json
    {
@@ -112,6 +159,10 @@ No global `task` or `buf` install is required; both come from dev dependencies.
      "timestamp": "2026-11-08T12:00:00.000Z"
    }
    ```
+
+   If the database check says `panic`/`error`, the database is down —
+   run `pnpm task db:up` and re-check. `docker compose logs db` shows
+   the database log.
 
 ## Usage
 
