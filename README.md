@@ -1,4 +1,8 @@
-# Broadside
+# <p align="center">Broadside</p>
+
+<p align="center"><strong>Self-hosted dashboard for <a href="https://www.artillery.io">Artillery</a> load-test metrics.</strong></p>
+
+<div align="center">
 
 [![Lit](https://img.shields.io/badge/Lit-324FFF?style=for-the-badge&logo=Lit&logoColor=white)](LIT)
 [![Hono](https://img.shields.io/badge/hono-E36002?style=for-the-badge&logo=hono&logoColor=white)](HONO)
@@ -6,7 +10,13 @@
 [![GitHub License](https://img.shields.io/github/license/sagar-shirwalkar/broadside?style=for-the-badge&color=purple)](LICENSE)
 [![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/sagar-shirwalkar/broadside/ci.yml?style=for-the-badge&labelColor=black)](BUILD)
 
-Dashboard for Artillery-generated data.
+</div>
+
+<div align="center">
+
+<img width="2895" height="1719" alt="broadside-0 2 0-runs-full" src="https://github.com/user-attachments/assets/86f1aba3-480d-4db2-9559-1be7db1015bf" />
+
+</div>
 
 Broadside is a self-hosted backend and dashboard for [Artillery](https://www.artillery.io/) load-test metrics. Artillery can produce detailed results, but the FOSS toolchain does not include a long-term metrics dashboard. Broadside accepts Artillery-shaped metrics over WebSocket, [Connect/gRPC](https://connectrpc.com/docs/node/getting-started/), or [Kafka](https://kafka.apache.org/), buffers them, and stores them in [TimescaleDB](https://docs.timescale.com/) so runs, RPS, latency percentiles, and error rates can be queried across time.
 
