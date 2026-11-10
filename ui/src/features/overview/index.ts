@@ -41,9 +41,13 @@ export class OverviewFeature extends LitElement {
     :host {
       display: block;
       color: var(--text-primary);
+      min-width: 0;
+      max-width: 100%;
+      overflow-x: clip;
     }
     .slo-strip-wrap {
       margin-bottom: 12px;
+      min-width: 0;
     }
     .slo-strip {
       display: flex;
@@ -54,12 +58,15 @@ export class OverviewFeature extends LitElement {
       background: var(--surface);
       border: 1px solid var(--border);
       border-radius: var(--radius-lg);
+      flex-wrap: wrap;
     }
     .slo-left,
     .slo-right {
       display: inline-flex;
       align-items: center;
       gap: var(--s-3);
+      min-width: 0;
+      flex-wrap: wrap;
     }
     .slo-label,
     .slo-target-label {
@@ -86,12 +93,18 @@ export class OverviewFeature extends LitElement {
       grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 12px;
       margin-bottom: 12px;
+      min-width: 0;
     }
     .grid-2 {
       display: grid;
       grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
       gap: 12px;
       margin-bottom: 12px;
+      min-width: 0;
+    }
+    .grid-slos > *,
+    .grid-2 > * {
+      min-width: 0;
     }
     @media (max-width: 1100px) {
       .grid-2,
@@ -106,6 +119,7 @@ export class OverviewFeature extends LitElement {
     }
     .table-wrap {
       overflow: auto;
+      min-width: 0;
     }
     .panel-head {
       margin: 0 0 10px;
@@ -157,6 +171,7 @@ export class OverviewFeature extends LitElement {
       border: 1px solid var(--border);
       border-radius: var(--radius-xs);
       padding: 12px;
+      min-width: 0;
     }
     .panel.error {
       color: var(--red);
@@ -174,16 +189,27 @@ export class OverviewFeature extends LitElement {
       padding: 6px 0;
       border-bottom: 1px solid var(--hairline);
       font-size: 13px;
+      min-width: 0;
+      flex-wrap: wrap;
+    }
+    .alert-list li .mono {
+      min-width: 0;
+      overflow-wrap: anywhere;
+    }
+    .alert-list li .muted {
+      min-width: 0;
     }
     .alert-delta {
       color: var(--red);
       font-family: var(--font-mono);
       font-weight: 600;
+      flex: none;
     }
     .alert-list .run-link {
       color: var(--amber);
       text-decoration: none;
       margin-left: auto;
+      flex: none;
     }
     .alert-list .run-link:hover {
       color: var(--amber-dim);

@@ -127,7 +127,38 @@ export function view(state: AppState, dispatch: (a: AppAction) => void): Templat
               title=${dark ? "switch to light" : "switch to dark"}
               aria-label="Toggle theme"
             >
-              <span class="glyph glyph-large" aria-hidden="true">${dark ? "☽" : "☼"}</span>
+              ${dark
+                ? html`<svg
+                    class="theme-icon"
+                    viewBox="0 0 24 24"
+                    width="18"
+                    height="18"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path d="M21 12.8A8.5 8.5 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z" />
+                  </svg>`
+                : html`<svg
+                    class="theme-icon"
+                    viewBox="0 0 24 24"
+                    width="18"
+                    height="18"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    aria-hidden="true"
+                  >
+                    <circle cx="12" cy="12" r="4.5" />
+                    <path
+                      d="M12 2.5v2.5M12 19v2.5M4.93 4.93l1.77 1.77M17.3 17.3l1.77 1.77M2.5 12H5M19 12h2.5M4.93 19.07l1.77-1.77M17.3 6.7l1.77-1.77"
+                    />
+                  </svg>`}
             </button>
           </span>
         </header>

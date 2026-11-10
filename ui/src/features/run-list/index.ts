@@ -35,7 +35,7 @@ export class RunListFeature extends LitElement {
   }
 
   static override styles = css`
-    .page { display: flex; flex-direction: column; gap: var(--s-5); }
+    .page { display: flex; flex-direction: column; gap: var(--s-5); min-width: 0; }
     .toolbar { display: flex; align-items: center; justify-content: space-between; gap: var(--s-4); flex-wrap: wrap; }
     h1 { margin: 0; font-size: var(--step-3); }
     .controls { display: flex; align-items: center; gap: var(--s-2); }
@@ -44,8 +44,7 @@ export class RunListFeature extends LitElement {
     .btn.primary { background: var(--amber); border-color: var(--amber); color: var(--ink); }
     .btn.primary:hover:not(:disabled) { background: var(--amber-dim); color: var(--ink); }
     .btn:disabled { opacity: 0.4; cursor: not-allowed; }
-    .select { appearance: none; padding-right: 28px; background: var(--surface) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23a0a4ac' fill='none' stroke-width='1.5'/%3E%3C/svg%3E") no-repeat right 10px center; outline: none; }
-    .table-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); overflow-x: auto; padding: var(--s-2) var(--s-5); }
+    .table-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); overflow-x: auto; padding: var(--s-2) var(--s-5); min-width: 0; }
     .empty { padding: var(--s-8); text-align: center; color: var(--mute); font-family: var(--font-mono); font-size: var(--step--1); }
     table { width: 100%; border-collapse: collapse; font-size: var(--step-0); font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
     th { text-align: left; font-weight: 500; color: var(--mute); font-size: var(--step--1); text-transform: uppercase; letter-spacing: 0.08em; padding: var(--s-3) var(--s-4); border-bottom: 1px solid var(--border); }

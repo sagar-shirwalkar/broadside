@@ -99,6 +99,10 @@ export class KpiCard extends LitElement {
   }
 
   static styles = css`
+    :host {
+      display: block;
+      min-width: 0;
+    }
     .card {
       background: var(--surface);
       border: 1px solid var(--border);

@@ -57,8 +57,8 @@ export function view(
     run(loadRuns(state.limit, offset));
   };
   const changePage = (delta: number) => goToPage(page(state) + delta);
-  const onLimit = (e: Event) => {
-    const limit = Number((e.target as HTMLSelectElement).value);
+  const onLimit = (e: CustomEvent<{ value: string }>) => {
+    const limit = Number(e.detail.value);
     dispatch({ type: "set_limit", limit });
     dispatch({ type: "load_started" });
     run(loadRuns(limit, 0));
@@ -74,9 +74,12 @@ export function view(
       <div class="toolbar">
         <h1>Runs</h1>
         <div class="controls">
-          <select class="btn select" .value=${String(state.limit)} @change=${onLimit} aria-label="Rows per page">
-            ${PAGE_SIZES.map((n) => html`<option value=${String(n)}>${n}/page</option>`)}
-          </select>
+          <broadside-select
+            .options=${PAGE_SIZES.map((n) => ({ value: String(n), label: `${n}/page` }))}
+            .value=${String(state.limit)}
+            @change=${onLimit}
+            aria-label="Rows per page"
+          ></broadside-select>
           <button
             class="btn primary"
             @click=${(e: Event) =>

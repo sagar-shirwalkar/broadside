@@ -141,6 +141,13 @@ function trends(state: State, dispatch: (a: Action) => void, run: (c: Cmd<Action
     <broadside-chart-panel
       title="Trend: p95 over time"
       .info=${"The single most important chart. One point per run — a slow upward drift is invisible in individual run views but obvious here."}
+      .series=${[{ name: "p95", colorIndex: 1, points: points(p95) } satisfies ChartSeries]}
+      yFormat="ms"
+      xFormat="time"
+      .showDots=${true}
+      .showLegend=${false}
+      .domain=${domain}
+      .height=${200}
     >
       <div slot="controls">
         <broadside-select
@@ -149,19 +156,18 @@ function trends(state: State, dispatch: (a: Action) => void, run: (c: Cmd<Action
           @change=${onTrendDays}
         ></broadside-select>
       </div>
-      <broadside-line-chart
-        .series=${[{ name: "p95", colorIndex: 1, points: points(p95) } satisfies ChartSeries]}
-        yFormat="ms"
-        xFormat="time"
-        .showDots=${true}
-        .domain=${domain}
-        height=${200}
-      ></broadside-line-chart>
       <div class="chart-footer">${latestRunCaption(p95.at(-1))}</div>
     </broadside-chart-panel>
     <broadside-chart-panel
       title="Trend: error rate"
       .info=${"Catches 'still fast but starting to fail' — errors creeping up while latency looks fine."}
+      .series=${[{ name: "error rate", colorIndex: 4, points: points(err) } satisfies ChartSeries]}
+      yFormat="%"
+      xFormat="time"
+      .showDots=${true}
+      .showLegend=${false}
+      .domain=${domain}
+      .height=${200}
     >
       <div slot="controls">
         <broadside-select
@@ -170,14 +176,6 @@ function trends(state: State, dispatch: (a: Action) => void, run: (c: Cmd<Action
           @change=${onTrendDays}
         ></broadside-select>
       </div>
-      <broadside-line-chart
-        .series=${[{ name: "error rate", colorIndex: 4, points: points(err) } satisfies ChartSeries]}
-        yFormat="%"
-        xFormat="time"
-        .showDots=${true}
-        .domain=${domain}
-        height=${200}
-      ></broadside-line-chart>
       <div class="chart-footer">${latestRunCaption(err.at(-1))}</div>
     </broadside-chart-panel>
   `;
@@ -198,6 +196,13 @@ function frequency(state: State, dispatch: (a: Action) => void, run: (c: Cmd<Act
     <broadside-chart-panel
       title="Run frequency"
       .info=${"Testing cadence. A gap means nobody is running load tests — coverage you think you have, you don't."}
+      .series=${[{ name: "runs", colorIndex: 2, points: pts } satisfies ChartSeries]}
+      yFormat="count"
+      xFormat="time"
+      kind="bars"
+      .showLegend=${false}
+      .domain=${domain}
+      .height=${160}
     >
       <div slot="controls">
         <broadside-select
@@ -206,14 +211,6 @@ function frequency(state: State, dispatch: (a: Action) => void, run: (c: Cmd<Act
           @change=${onFrequency}
         ></broadside-select>
       </div>
-      <broadside-line-chart
-        .series=${[{ name: "runs", colorIndex: 2, points: pts } satisfies ChartSeries]}
-        yFormat="count"
-        xFormat="time"
-        kind="bars"
-        .domain=${domain}
-        height=${160}
-      ></broadside-line-chart>
     </broadside-chart-panel>
   `;
 }

@@ -129,6 +129,10 @@ export class App extends LitElement {
     .glyph-large {
       font-size: var(--step-1);
     }
+    .theme-icon {
+      display: block;
+      flex: none;
+    }
     .nav-item {
       display: flex;
       align-items: center;
@@ -219,6 +223,7 @@ export class App extends LitElement {
       padding: var(--s-6) var(--s-5);
       max-width: 1440px;
       width: 100%;
+      min-width: 0;
       box-sizing: border-box;
       margin: 0 auto;
       animation: fade-up var(--dur-slow) var(--ease);

@@ -662,6 +662,7 @@ export class RunDetail extends LitElement {
       display: flex;
       flex-direction: column;
       gap: var(--s-5);
+      min-width: 0;
     }
     .header {
       display: flex;
@@ -802,8 +803,12 @@ export class RunDetail extends LitElement {
     }
     .grid {
       display: grid;
-      grid-template-columns: 1fr 1fr;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
       gap: var(--s-4);
+      min-width: 0;
+    }
+    .grid > * {
+      min-width: 0;
     }
     @media (max-width: 1024px) {
       .grid {
@@ -815,6 +820,7 @@ export class RunDetail extends LitElement {
       border: 1px solid var(--border);
       border-radius: var(--radius-lg);
       padding: var(--s-5);
+      min-width: 0;
     }
     .hint-title {
       display: block;
