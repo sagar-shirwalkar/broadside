@@ -358,7 +358,7 @@ export class OverviewView extends LitElement {
                 ${Math.round(r.latestP95)}ms vs ${Math.round(r.baselineP95)}ms
                 baseline (${r.baselineRuns} runs)
               </span>
-              <a href="#/runs/${encodeURIComponent(r.runId)}" @click=${(e: Event) => {
+              <a class="run-link" href="#/runs/${encodeURIComponent(r.runId)}" @click=${(e: Event) => {
                 e.preventDefault();
                 navigate(`/runs/${encodeURIComponent(r.runId)}`);
               }}>run →</a>
@@ -570,10 +570,13 @@ export class OverviewView extends LitElement {
       font-family: var(--font-mono);
       font-weight: 600;
     }
-    .alert-list a {
-      color: var(--accent);
+    .alert-list .run-link {
+      color: var(--amber);
       text-decoration: none;
       margin-left: auto;
+    }
+    .alert-list .run-link:hover {
+      color: var(--amber-dim);
     }
     .mono {
       font-family: var(--font-mono);

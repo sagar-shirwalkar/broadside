@@ -327,7 +327,6 @@ export class App extends LitElement {
       background: transparent;
       border: 1px solid var(--border);
       border-radius: var(--radius);
-      color: var(--mute);
       font-family: var(--font-mono);
       width: 38px;
       height: 38px;
@@ -337,13 +336,21 @@ export class App extends LitElement {
       cursor: pointer;
       transition: all var(--dur-fast) var(--ease);
     }
-    .theme-btn:hover,
-    .hamburger:hover {
-      color: var(--text);
+    .theme-btn {
+      color: var(--amber);
       border-color: var(--amber-dim);
     }
     .hamburger {
+      color: var(--mute);
       display: none;
+    }
+    .theme-btn:hover,
+    .hamburger:hover {
+      color: var(--amber);
+      border-color: var(--amber);
+    }
+    .hamburger:hover {
+      color: var(--text);
     }
     .content {
       padding: var(--s-6) var(--s-5);

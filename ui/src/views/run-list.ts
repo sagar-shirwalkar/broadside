@@ -200,7 +200,7 @@ export class RunList extends LitElement {
                         </td>
                         <td>
                           <button
-                            class="icon-btn"
+                            class="icon-text-btn"
                             title="Delete run"
                             aria-label="Delete run"
                             @click=${(e: Event) => {
@@ -208,7 +208,19 @@ export class RunList extends LitElement {
                               this.askDelete(row);
                             }}
                           >
-                            ✕
+                            <svg
+                              class="icon"
+                              viewBox="0 0 16 16"
+                              width="14"
+                              height="14"
+                              fill="none"
+                              stroke="currentColor"
+                              stroke-width="1.5"
+                              aria-hidden="true"
+                            >
+                              <path d="M3 4h10M6 4V3h4v1M5 4v8h6V4M7 6v4M9 6v4" />
+                            </svg>
+                            delete
                           </button>
                         </td>
                       </tr>`,
@@ -390,20 +402,26 @@ export class RunList extends LitElement {
     .status-warn {
       color: var(--warn);
     }
-    .icon-btn {
+    .icon-text-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--s-1);
       background: transparent;
       border: 1px solid transparent;
       border-radius: var(--radius);
       color: var(--mute);
       font-family: var(--font-mono);
       font-size: var(--step--1);
-      padding: var(--s-1) var(--s-3);
+      padding: var(--s-1) var(--s-2);
       cursor: pointer;
       transition: all var(--dur-fast) var(--ease);
     }
-    .icon-btn:hover {
+    .icon-text-btn:hover {
       color: var(--bad);
       border-color: var(--bad);
+    }
+    .icon-text-btn .icon {
+      flex: none;
     }
     .pager {
       display: flex;

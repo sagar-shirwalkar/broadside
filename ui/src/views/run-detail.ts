@@ -440,8 +440,23 @@ export class RunDetail extends LitElement {
                   ></broadside-status-dot>
                   ${run.status}
                 </span>`}
-            <button class="btn danger" @click=${() => (this.confirmOpen = true)}>
-              ${run.status === "running" ? "✕ kill" : "✕ delete"}
+            <button
+              class="btn danger icon-text-btn"
+              @click=${() => (this.confirmOpen = true)}
+            >
+              <svg
+                class="icon"
+                viewBox="0 0 16 16"
+                width="14"
+                height="14"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.5"
+                aria-hidden="true"
+              >
+                <path d="M3 4h10M6 4V3h4v1M5 4v8h6V4M7 6v4M9 6v4" />
+              </svg>
+              ${run.status === "running" ? "kill" : "delete"}
             </button>
           </div>
         </div>
@@ -663,7 +678,7 @@ export class RunDetail extends LitElement {
     .link-btn {
       background: transparent;
       border: none;
-      color: var(--mute);
+      color: var(--amber);
       font-family: var(--font-mono);
       font-size: var(--step--1);
       cursor: pointer;
@@ -671,7 +686,15 @@ export class RunDetail extends LitElement {
       transition: color var(--dur-fast) var(--ease);
     }
     .link-btn:hover {
-      color: var(--text);
+      color: var(--amber-dim);
+    }
+    .icon-text-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--s-1);
+    }
+    .icon-text-btn .icon {
+      flex: none;
     }
     h3 {
       margin: 0;

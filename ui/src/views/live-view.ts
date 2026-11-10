@@ -341,7 +341,7 @@ export class LiveView extends LitElement {
     .link-btn {
       background: transparent;
       border: none;
-      color: var(--mute);
+      color: var(--amber);
       font-family: var(--font-mono);
       font-size: var(--step--1);
       cursor: pointer;
@@ -349,7 +349,7 @@ export class LiveView extends LitElement {
       transition: color var(--dur-fast) var(--ease);
     }
     .link-btn:hover {
-      color: var(--text);
+      color: var(--amber-dim);
     }
     h1 {
       margin: 0;

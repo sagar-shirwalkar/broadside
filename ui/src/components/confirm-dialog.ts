@@ -30,24 +30,30 @@ export class ConfirmDialog extends LitElement {
     if (event.target === event.currentTarget) this.onCancel();
   }
 
+  private cap(s: string): string {
+    return s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
+  }
+
   override render() {
     if (!this.open) return "";
     return html`
       <div class="overlay" @click=${this.onBackdrop}>
         <div class="sheet" role="dialog" aria-label=${this.title}>
-          <button class="close" @click=${this.onCancel} aria-label="Close">✕</button>
-          <h2>${this.title}</h2>
+          <div class="header">
+            <h2>${this.cap(this.title)}</h2>
+            <button class="close" @click=${this.onCancel} aria-label="Close">✕</button>
+          </div>
           <p class="body">${this.body}</p>
           <div class="actions">
             <button class="btn" @click=${this.onCancel} ?disabled=${this.busy}>
-              cancel
+              Cancel
             </button>
             <button
               class="btn danger"
               @click=${this.onConfirm}
               ?disabled=${this.busy}
             >
-              ${this.busy ? "working…" : this.confirmLabel}
+              ${this.busy ? "Working…" : this.cap(this.confirmLabel)}
             </button>
           </div>
         </div>
@@ -73,8 +79,20 @@ export class ConfirmDialog extends LitElement {
       background: var(--surface);
       border: 1px solid var(--border);
       border-radius: var(--radius-lg);
-      padding: var(--s-5);
+      padding: var(--s-4) var(--s-5);
       animation: fade-up var(--dur) var(--ease);
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--s-3);
+      margin-bottom: var(--s-2);
+    }
+    h2 {
+      font-size: var(--step-1);
+      margin: 0;
+      font-weight: 600;
     }
     .close {
       background: transparent;
@@ -83,18 +101,14 @@ export class ConfirmDialog extends LitElement {
       color: var(--mute);
       font-family: var(--font-mono);
       font-size: var(--step--1);
-      padding: var(--s-1) var(--s-3);
+      padding: 2px var(--s-2);
       cursor: pointer;
-      margin-bottom: var(--s-4);
+      flex: none;
       transition: all var(--dur-fast) var(--ease);
     }
     .close:hover {
       color: var(--text);
       border-color: var(--amber-dim);
-    }
-    h2 {
-      font-size: var(--step-2);
-      margin: 0 0 var(--s-3);
     }
     .body {
       margin: 0;
@@ -105,7 +119,7 @@ export class ConfirmDialog extends LitElement {
       display: flex;
       justify-content: flex-end;
       gap: var(--s-2);
-      margin-top: var(--s-5);
+      margin-top: var(--s-4);
     }
     .btn {
       font-family: var(--font-mono);
