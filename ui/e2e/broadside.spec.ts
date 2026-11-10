@@ -341,7 +341,7 @@ test("kill (running run): confirm dialog and return to runs list", async ({
   const detail = page.locator("broadside-run-detail");
   await detail.getByRole("button", { name: /kill/i }).click();
 
-  const dialog = page.locator("broadside-confirm-dialog");
+  const dialog = page.getByRole("dialog", { name: /kill run/i });
   await expect(dialog).toBeVisible();
   await expect(dialog).toContainText(/kill run/i);
   // Modal capitalizes labels; match case-insensitively.
@@ -379,7 +379,7 @@ test("delete from runs list: confirm dialog uses trash action", async ({
   const list = page.locator("broadside-run-list");
   await list.getByRole("button", { name: /delete run/i }).first().click();
 
-  const dialog = page.locator("broadside-confirm-dialog");
+  const dialog = page.getByRole("dialog", { name: /delete run/i });
   await expect(dialog).toBeVisible();
   await expect(dialog).toContainText(/delete run/i);
   await dialog.getByRole("button", { name: /^delete$/i }).click();

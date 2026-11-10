@@ -62,6 +62,9 @@ export class ConfirmDialog extends LitElement {
   }
 
   static styles = css`
+    :host {
+      display: block;
+    }
     .overlay {
       position: fixed;
       inset: 0;
