@@ -20,7 +20,7 @@
 - Use postgres.js tagged templates for values: `sql\`... WHERE id = ${id}\``.
 - Use `sql.identifier(...)` for dynamic identifiers such as view names.
 - Never concatenate untrusted input into SQL strings.
-- Only `metrics_1m`, `metrics_1h`, and `metrics_1d` are valid aggregate view names.
+- Only `metrics_10s`, `metrics_1m`, `metrics_1h`, and `metrics_1d` are valid aggregate view names.
 - Store timestamps in UTC. `MetricsFlusher` converts `Date` values to ISO strings before inserting.
 - For a list of ids, bind the array as a value (`WHERE id = ANY(${ids})`) — postgres.js renders it as a Postgres array — instead of joining ids into the query string. Validate the count server-side (compare allows 2–10).
 - Treat `src/db/schema.sql` as the source of truth for the schema; keep it consistent with the types and queries.
@@ -36,6 +36,7 @@
 - JSON ingestion goes through `normalizePoint` / `normalizeBatch` — the repo's only untrusted-JSON parse point — which validate with `@zod/mini` schemas at the boundary and tolerate snake_case and camelCase aliases. Malformed shapes throw a `TypeError`, which the WS handler turns into an `"invalid message"` reply instead of ingesting NaN or wrongly-typed values.
 - Ingestion is bounded (defense in depth): WebSocket messages are capped by `INGEST_MAX_MESSAGE_BYTES` (1 MB), batches by `INGEST_MAX_BATCH_POINTS` (50000) across WS/gRPC/Kafka, concurrent Artillery children by `ARTILLERY_MAX_CONCURRENT`, and orchestration POST bodies by the 200 KB config cap.
 - `metrics` rows also carry VU counters, absolute error counts, and histogram quantiles for the CDF/histogram/active-VUser charts; keep `src/db/schema.sql` in sync with `src/types.ts` and `parseReportPoints` when adding columns.
+- `normalize.ts` has a property-based fuzz suite (`test/normalize.fuzz.test.ts`, fast-check): arbitrary JSON must either parse or throw `TypeError`; well-formed points round-trip, alias variants agree, re-normalization is idempotent, and unknown keys are inert.
 - Every ingestion path must call `metricsFlusher.ingest`; the flusher owns buffering, batching, retry, and drop accounting.
 - Do not block an ingest path on a database write.
 - Kafka is disabled unless `KAFKA_BROKERS` is set; keep the disabled path silent and safe.
@@ -49,6 +50,7 @@
 
 - Read environment variables only in `src/config.ts`.
 - Optional features default to off: empty `API_TOKEN` disables authentication, unset `KAFKA_BROKERS` disables the consumer. Keep `GET /api/health` public — it is the probe endpoint for load balancers.
+- SLO thresholds (`SLO_P95_MS`, `SLO_ERROR_RATE`, `SLO_WINDOW_RUNS`, `SLO_REGRESSION_DELTA`) are read in `src/config.ts` and used by `/api/overview`.
 
 ## Security
 
@@ -61,9 +63,10 @@
 ## Dashboard (`ui/`)
 
 - The UI is TypeScript with `strict: true` and `moduleResolution: bundler`; relative imports use the `.js` extension for consistency with the server.
-- Keep views focused on one responsibility; shared shapes live in `ui/src/types.ts`, display formatting in `ui/src/format.ts`, and HTTP in `ui/src/api.ts` (no ad-hoc `fetch` in views).
+- The UI follows TEA/MVU: `core/` (runtime/cmd/types), `app/` (root composition), `features/<name>/` (types/update/cmds/view/index), `components/` (stateless primitives), `services/` (IO boundary, e.g. `services/api.ts`), `styles/` (tokens/theme/base). Keep `update` pure and put IO in `cmds`/`services`.
+- Keep views/features focused on one responsibility; shared shapes live in `ui/src/types.ts`, display formatting in `ui/src/format.ts`, and HTTP in `ui/src/services/api.ts` (compat shim: `ui/src/api.ts`; no ad-hoc `fetch` in views).
 - Charts use CSS custom properties for colors (`--chart-line-*`), never hardcoded hex, so theming works on toggle.
-- UI dependencies stay minimal (Lit, Shoelace, Vite); charts are hand-rolled SVG with no charting library and no Tailwind. See `ui/src/chart-svg.ts` for the pure geometry and `ui/src/components/line-chart.ts` for rendering.
+- UI dependencies stay minimal (Lit, Vite); charts are hand-rolled SVG with no charting library and no Tailwind. See `ui/src/chart-svg.ts` for the pure geometry and `ui/src/components/line-chart.ts` for rendering.
 
 ## Logging
 

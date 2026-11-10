@@ -22,6 +22,8 @@ export class ChartPanel extends LitElement {
   @property() yLabel = "";
   @property({ type: Number }) height = 220;
   @property({ type: Boolean }) fill = false;
+  @property({ type: Boolean }) showDots = false;
+  @property({ type: Boolean }) showLegend = true;
   @property({ type: Boolean }) zoomed = false;
   @property({ type: Array }) domain: [number, number] | null = null;
   @property() kind: ChartKind = "line";
@@ -35,6 +37,27 @@ export class ChartPanel extends LitElement {
         composed: true,
       }),
     );
+  }
+
+  override attributeChangedCallback(
+    name: string,
+    old: string | null,
+    value: string | null,
+  ) {
+    if (name === "title") {
+      // Keep the heading text, but strip the host `title` attribute so
+      // the browser's native tooltip doesn't obscure chart hover data.
+      // Removing the attribute re-enters this callback with value=null;
+      // ignore that pass so the property isn't cleared.
+      if (value !== null) {
+        this.title = value;
+      }
+      if (this.hasAttribute("title")) {
+        this.removeAttribute("title");
+      }
+      return;
+    }
+    super.attributeChangedCallback(name, old, value);
   }
 
   override render() {
@@ -65,16 +88,23 @@ export class ChartPanel extends LitElement {
           .yLabel=${this.yLabel}
           .height=${this.height}
           .fill=${this.fill}
+          .showDots=${this.showDots}
+          .showLegend=${this.showLegend}
           .domain=${this.domain}
           .kind=${this.kind}
           .xFormat=${this.xFormat}
           .annotations=${this.annotations}
         ></broadside-line-chart>
+        <slot></slot>
       </section>
     `;
   }
 
   static styles = css`
+    :host {
+      display: block;
+      min-width: 0;
+    }
     .card {
       background: var(--surface);
       border: 1px solid var(--border);

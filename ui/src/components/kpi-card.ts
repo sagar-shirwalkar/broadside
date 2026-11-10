@@ -22,7 +22,7 @@ export class KpiCard extends LitElement {
   @property() dot: "mint" | "peach" | "blush" = "mint";
 
   private sparkPath(): string {
-    const data = this.spark;
+    const data = this.spark ?? [];
     if (data.length < 2) return "";
     const w = 120;
     const h = 32;
@@ -80,7 +80,7 @@ export class KpiCard extends LitElement {
                 <path d=${area} class="spark-fill" />
                 <path d=${path} class="spark-line" />
               </svg>`
-            : this.spark.length === 1
+            : (this.spark?.length ?? 0) === 1
               ? html`<svg
                 class="spark"
                 viewBox="0 0 120 32"
@@ -99,6 +99,10 @@ export class KpiCard extends LitElement {
   }
 
   static styles = css`
+    :host {
+      display: block;
+      min-width: 0;
+    }
     .card {
       background: var(--surface);
       border: 1px solid var(--border);

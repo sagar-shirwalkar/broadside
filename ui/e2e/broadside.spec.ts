@@ -1,7 +1,14 @@
 import { expect, test, type Page } from "@playwright/test";
 
-/** Fake API: the backend is stubbed at the network layer so the suite runs
- *  against the Vite dev server alone (no database, no Artillery). */
+/**
+ * Fake API: the backend is stubbed at the network layer so the suite runs
+ * against the Vite dev server alone (no database, no Artillery).
+ *
+ * Polymorphic UI (status shown as completed/failed/live across overview,
+ * run list, run detail, live view; delete vs kill by run state) is asserted
+ * via scoped role/text and structural locators (filter/visible) rather than
+ * brittle glyphs, so variant presentation can evolve without breaking tests.
+ */
 
 const RUNS = [
   {
@@ -63,6 +70,60 @@ const HEALTH = {
   timestamp: "2026-03-02T11:00:00Z",
 };
 
+const OVERVIEW = {
+  slo: [
+    {
+      key: "p95",
+      label: "p95 latency",
+      threshold: 400,
+      unit: "ms",
+      total: 30,
+      met: 28,
+      metPct: 28 / 30,
+      status: "pass",
+    },
+    {
+      key: "errorRate",
+      label: "error rate",
+      threshold: 0.01,
+      unit: "ratio",
+      total: 30,
+      met: 27,
+      metPct: 27 / 30,
+      status: "pass",
+    },
+  ],
+  trends: {
+    p95: [
+      { time: "2026-03-01T00:00:00Z", value: 210, runId: "run-1-aaaa" },
+      { time: "2026-03-02T00:00:00Z", value: 180, runId: "run-2-bbbb" },
+    ],
+    errorRate: [
+      { time: "2026-03-01T00:00:00Z", value: 0.012, runId: "run-1-aaaa" },
+      { time: "2026-03-02T00:00:00Z", value: 0.004, runId: "run-2-bbbb" },
+    ],
+  },
+  frequency: [
+    { day: "2026-02-24", runs: 2 },
+    { day: "2026-03-02", runs: 1 },
+  ],
+  worst: [
+    { endpoint: "/api/login", avgP95: 320, avgErrorRate: 0.01, runs: 5 },
+  ],
+  regressions: [
+    {
+      endpoint: "/api/checkout",
+      latestP95: 123,
+      baselineP95: 100,
+      deltaPct: 23,
+      runId: "run-1-aaaa",
+      baselineRuns: 10,
+    },
+  ],
+  recentRuns: RUNS,
+  meta: { trendDays: 30, frequencyInterval: "week" },
+};
+
 async function stubApi(page: Page, options: { authGate?: boolean } = {}) {
   const seen: string[] = [];
 
@@ -93,6 +154,7 @@ async function stubApi(page: Page, options: { authGate?: boolean } = {}) {
       });
 
     if (path === "/api/health") return json(HEALTH);
+    if (path === "/api/overview") return json(OVERVIEW);
     if (path === "/api/runs" && request.method() === "GET") {
       const limit = Number(url.searchParams.get("limit") ?? 100);
       return json(RUNS.slice(0, limit));
@@ -119,6 +181,7 @@ async function stubApi(page: Page, options: { authGate?: boolean } = {}) {
     if (path.endsWith("/metrics")) return json(METRICS);
     if (path.endsWith("/raw")) return json([]);
     if (path.endsWith("/endpoints")) return json([]);
+    if (path.endsWith("/phases")) return json([]);
     if (path.endsWith("/live")) {
       await route.fulfill({
         status: 200,
@@ -151,7 +214,7 @@ async function signIn(page: Page) {
   });
   await stubApi(page);
   await page.goto("/");
-  await expect(page.locator("broadside-run-list")).toBeVisible();
+  await expect(page.locator("broadside-overview-view")).toBeVisible();
 }
 
 test("login: a 401 shows the login page and a token unlocks the app", async ({
@@ -166,32 +229,70 @@ test("login: a 401 shows the login page and a token unlocks the app", async ({
   await page.locator("broadside-login input.input").fill("test-token");
   await page.locator("broadside-login .btn").click();
 
-  await expect(page.locator("broadside-run-list")).toBeVisible();
-  await expect(page.locator("broadside-run-list")).toContainText("run-1");
+  await expect(page.locator("broadside-overview-view")).toBeVisible();
+  await expect(page.locator("broadside-overview-view")).toContainText("SLO Status");
 });
 
-test("run list renders rows with status badges", async ({ page }) => {
+test("overview: shows SLO strip, panels, recent runs and regression link", async ({
+  page,
+}) => {
   await signIn(page);
+  const overview = page.locator("broadside-overview-view");
+  await expect(overview).toContainText("SLO Status");
+  await expect(overview).toContainText("SLO Target");
+  await expect(overview).toContainText("Regression alerts");
+  await expect(overview).toContainText("Recent runs");
+  await expect(overview).toContainText("Worst endpoints");
+  await expect(overview.getByRole("link", { name: /run/i }).first()).toBeVisible();
+  // Status is shown polymorphically (dot+text); assert the contract, not glyphs.
+  await expect(overview).toContainText("completed");
+  await expect(overview).toContainText("running");
+  await expect(overview.locator("broadside-status-dot").first()).toBeVisible();
+});
+
+test("overview: trend dropdown changes the requested window", async ({ page }) => {
+  await signIn(page);
+  const overview = page.locator("broadside-overview-view");
+  // Custom dropdown (polymorphic control): open and choose "7 days".
+  await overview.getByRole("button", { name: "30 days" }).first().click();
+  await overview.getByRole("option", { name: "7 days" }).first().click();
+  await expect(overview.getByRole("button", { name: "7 days" }).first()).toBeVisible();
+});
+
+test("run list: nav and rows render status with delete action", async ({ page }) => {
+  await signIn(page);
+  await page.getByRole("link", { name: "Runs" }).click();
+  await expect(page.locator("broadside-run-list")).toBeVisible();
 
   const rows = page.locator("broadside-run-list tbody tr");
   await expect(rows).toHaveCount(2);
-  await expect(page.locator("broadside-run-list")).toContainText("completed");
-  await expect(page.locator("broadside-run-list")).toContainText("running");
+  const list = page.locator("broadside-run-list");
+  await expect(list).toContainText("completed");
+  await expect(list).toContainText("running");
+  // Delete action is icon+text now; scoped to the list.
+  await expect(
+    list.getByRole("button", { name: /delete run/i }).first(),
+  ).toBeVisible();
 });
 
-test("run detail shows KPI cards and charts", async ({ page }) => {
+test("run detail: KPI cards, charts, and destructive action by run state", async ({
+  page,
+}) => {
   await signIn(page);
   await page.goto("#/runs/run-1-aaaa");
 
+  const detail = page.locator("broadside-run-detail");
   await expect(page.locator("broadside-kpi-card")).toHaveCount(6);
-  await expect(page.locator("broadside-run-detail")).toContainText(/requests/i);
+  await expect(detail).toContainText(/requests/i);
   await expect(page.locator("broadside-line-chart")).toHaveCount(9);
-  // Chart renders real SVG paths (not HTML-namespace lookalikes).
   const pathNs = await page
     .locator("broadside-line-chart path")
     .first()
     .evaluate((el) => el.namespaceURI);
   expect(pathNs).toBe("http://www.w3.org/2000/svg");
+  // Completed run shows "delete" (not kill); polymorphic by state.
+  await expect(detail.getByRole("button", { name: /delete/i })).toBeVisible();
+  await expect(detail.getByRole("button", { name: /← runs/i })).toBeVisible();
 });
 
 test("detail of an unknown run shows the not-found view", async ({ page }) => {
@@ -202,14 +303,16 @@ test("detail of an unknown run shows the not-found view", async ({ page }) => {
   await expect(page.locator("broadside-not-found")).toContainText("Run not found");
 });
 
-test("live view streams points and shows the completion banner", async ({
+test("live view: streams and shows completion with back navigation", async ({
   page,
 }) => {
   await signIn(page);
   await page.goto("#/runs/run-2-bbbb/live");
 
-  await expect(page.locator("broadside-live-view")).toContainText("completed");
-  await expect(page.locator("broadside-live-view")).toContainText("view full report");
+  const live = page.locator("broadside-live-view");
+  await expect(live).toContainText("completed");
+  await expect(live).toContainText("view full report");
+  await expect(live.getByRole("button", { name: /← runs/i })).toBeVisible();
 });
 
 test("compare: selecting two runs renders charts and a KPI table", async ({
@@ -218,51 +321,69 @@ test("compare: selecting two runs renders charts and a KPI table", async ({
   await signIn(page);
   await page.goto("#/compare");
 
-  const boxes = page.locator("broadside-compare-view input[type='checkbox']");
+  const view = page.locator("broadside-compare-view");
+  const boxes = view.locator("input[type='checkbox']");
   await expect(boxes).toHaveCount(2);
   await boxes.first().check();
   await boxes.nth(1).check();
-  await page.locator("broadside-compare-view .btn.primary").click();
+  await view.getByRole("button", { name: /compare/i }).click();
 
-  await expect(page.locator("broadside-compare-view table tbody tr")).toHaveCount(2);
-  // 9 panels now: throughput, p95, error rate, active vusers, tail spread,
-  // error count, created/completed, CDF, histogram.
+  await expect(view.locator(".table-card tbody tr")).toHaveCount(2);
   await expect(page.locator("broadside-line-chart")).toHaveCount(9);
 });
 
-test("kill: confirming on a running run deletes and returns to the list", async ({
+test("kill (running run): confirm dialog and return to runs list", async ({
   page,
 }) => {
   await signIn(page);
   await page.goto("#/runs/run-2-bbbb");
 
-  await page
-    .locator("broadside-run-detail button:visible")
-    .filter({ hasText: "kill" })
-    .click();
-  await expect(page.locator("broadside-confirm-dialog")).toContainText("kill run?");
-  await page
-    .locator("broadside-confirm-dialog .btn.danger")
-    .getByText("kill", { exact: true })
-    .click();
+  const detail = page.locator("broadside-run-detail");
+  await detail.getByRole("button", { name: /kill/i }).click();
 
-  await expect.poll(() => page.url()).toBe("http://localhost:5173/#/");
+  const dialog = page.getByRole("dialog", { name: /kill run/i });
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toContainText(/kill run/i);
+  // Modal capitalizes labels; match case-insensitively.
+  await dialog.getByRole("button", { name: /^kill$/i }).click();
+
+  await expect.poll(() => page.url()).toContain("#/runs");
   await expect(page.locator("broadside-run-list")).toBeVisible();
 });
 
-test("new run: the dialog submits and navigates to the live view", async ({
+test("new run: dialog submits and navigates to the live view", async ({
   page,
 }) => {
   await signIn(page);
+  await page.goto("#/runs");
 
-  await page.locator("broadside-run-list .btn.primary", { hasText: "new run" }).click();
+  await page
+    .locator("broadside-run-list")
+    .getByRole("button", { name: /new run/i })
+    .click();
   const sheet = page.locator("broadside-trigger-dialog .sheet");
   await expect(sheet).toBeVisible();
 
   await page.locator("broadside-trigger-dialog input.input").first().fill("./load-test.yml");
-  await sheet.locator("button", { hasText: "start run" }).click();
+  await sheet.getByRole("button", { name: /start run/i }).click();
 
   await expect.poll(() => page.url()).toContain("#/runs/run-new-cccc/live");
+});
+
+test("delete from runs list: confirm dialog uses trash action", async ({
+  page,
+}) => {
+  await signIn(page);
+  await page.goto("#/runs");
+
+  const list = page.locator("broadside-run-list");
+  await list.getByRole("button", { name: /delete run/i }).first().click();
+
+  const dialog = page.getByRole("dialog", { name: /delete run/i });
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toContainText(/delete run/i);
+  await dialog.getByRole("button", { name: /^delete$/i }).click();
+  await expect(dialog).not.toBeVisible();
 });
 
 test("an unknown hash shows the not-found view", async ({ page }) => {

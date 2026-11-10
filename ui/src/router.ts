@@ -2,6 +2,7 @@
  *  behind any static host without rewrite rules. */
 
 export type Route =
+  | { name: "overview" }
   | { name: "list" }
   | { name: "detail"; id: string }
   | { name: "live"; id: string }
@@ -12,7 +13,13 @@ export function parseHash(hash: string): Route {
   const path = hash.replace(/^#/, "") || "/";
   const segments = path.split("/").filter(Boolean).map(decodeURIComponent);
 
-  if (segments.length === 0) return { name: "list" };
+  if (segments.length === 0) return { name: "overview" };
+  if (segments[0] === "overview" && segments.length === 1) {
+    return { name: "overview" };
+  }
+  if (segments[0] === "runs" && segments.length === 1) {
+    return { name: "list" };
+  }
   if (segments[0] === "compare" && segments.length === 1) {
     return { name: "compare" };
   }

@@ -39,7 +39,7 @@ export class InfoTip extends LitElement {
       background: transparent;
       border: none;
       padding: 0;
-      color: var(--mute-2);
+      color: var(--amber);
       font-family: var(--font-mono);
       font-size: var(--step-1);
       line-height: 1;
@@ -48,7 +48,7 @@ export class InfoTip extends LitElement {
     }
     .trigger:hover,
     .trigger:focus-visible {
-      color: var(--amber);
+      color: var(--amber-dim);
       outline: none;
     }
     .tip {
@@ -67,7 +67,7 @@ export class InfoTip extends LitElement {
       font-family: var(--font-mono);
       font-size: var(--step--1);
       line-height: 1.55;
-      color: var(--text);
+      color: var(--amber);
       letter-spacing: 0;
       text-transform: none;
       box-shadow: var(--shadow-card);

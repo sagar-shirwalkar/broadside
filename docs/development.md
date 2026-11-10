@@ -18,6 +18,7 @@ pnpm task setup
 | Command | Purpose |
 | --- | --- |
 | `pnpm task dev` | Run the server in watch mode (REST/WS `:3000`, gRPC `:3001`). |
+| `pnpm task dev:full` | Run the server and Vite dev server together (dashboard on `:5173`). |
 | `pnpm task lint` | Type-check with `tsc --noEmit`. |
 | `pnpm test` | Run the Vitest suite. |
 | `pnpm test:coverage` | Run tests with the 80% coverage gate. |
@@ -51,6 +52,7 @@ pnpm task setup
 
 - Tests live in `test/` and use Vitest plus Hono's `testClient` from `hono/testing`.
 - `pnpm test` runs the suite; `pnpm test:coverage` enforces 80% statements, branches, functions, and lines.
+- `test/normalize.fuzz.test.ts` is the fast-check property suite for the ingestion boundary: arbitrary JSON must either parse or throw `TypeError`; well-formed points round-trip, alias variants agree, re-normalization is idempotent, and unknown keys are inert. Run it with `pnpm test test/normalize.fuzz.test.ts`.
 - Database and Kafka dependencies are mocked. Unit tests do not require a running TimescaleDB.
 - `test/artillery.test.ts` mocks `node:child_process`, `node:fs/promises`, the DB client, the logger, config, and the flusher. Use its fake process helper to drive `close`/`error` events; wrap assertions for async handlers in `vi.waitFor`.
 - `test/runs.test.ts` exercises the REST surface through `testClient` with a mocked `sql` tagged-template. Because the mock records template parts and values separately, assertions on pagination or `ANY (${ids})` inspect the value indexes (`call[1]`, `call[2]`, …) rather than the SQL text.
@@ -77,6 +79,7 @@ pnpm task setup
 ## Reading run data
 
 - `GET /api/runs?limit=&offset=` — paginate the run list; `limit` is 1–100 (default 100), `offset` is ≥ 0.
+- `GET /api/overview?days=<1|7|30>&frequency=<day|week>` — one-shot landing-page aggregates: SLO status (p95/error-rate met-rates over the last `SLO_WINDOW_RUNS` completed runs), per-run p95 and error-rate trend from `metrics_1d` grouped by `run_id` over `?days` (default `30`), run frequency bucketed by `?frequency` over 30 days (default `day`), worst endpoints by average p95 (30 days), regression alerts (latest run's per-endpoint p95 vs. rolling median), and the 5 most recent runs. Returns `meta: { trendDays, frequencyInterval }`.
 - `GET /api/runs/:id/endpoints` — distinct non-aggregate endpoints with sample counts; what the dashboard uses to render filter tabs.
 - `GET /api/runs/:id/metrics` and `/raw` accept `endpoint=` for server-side filtering. The aggregate row is `endpoint=`.
 - `GET /api/runs/compare?ids=a,b,c` — metadata plus one series per run. `ids` is required, 2–10 after de-duplication; `granularity`/`from`/`to`/`endpoint` work as on `/metrics`.
@@ -104,11 +107,12 @@ pnpm task setup
 
 ## Dashboard (`ui/`)
 
-- `ui/` is its own package (own `package.json`, lockfile, and `pnpm-workspace.yaml` for the esbuild approval). `cd ui && pnpm install` sets it up; `pnpm task ui:dev` / `ui:build` wrap the Vite scripts.
+- `ui/` is its own package (own `package.json`, lockfile, and `pnpm-workspace.yaml` for the esbuild approval). `cd ui && pnpm install` sets it up; `pnpm task ui:dev` / `ui:build` wrap the Vite scripts. The dashboard is structured with TEA/MVU: `ui/src/core` (runtime), `app` (shell), `features/<name>` (model/update/cmds/view), `components` (stateless primitives), `services` (IO boundary), and `styles` (tokens/theme/base).
 - UI tests: `pnpm task ui:test` (Vitest, pure-logic: router parsing, formatters, chart geometry) and `pnpm task ui:test:e2e` (Playwright, 9 scenarios with the API stubbed at the network layer, so no database is needed). E2E needs browsers: `cd ui && pnpm exec playwright install chromium`. CI runs both.
+- The dashboard opens on the **Overview** page (`#/`): SLO status, per-run p95/error-rate trend, run frequency, worst endpoints, recent runs, and regression alerts. The **Runs** list moved to `#/runs`.
 - `GET /api/runs/:id/phases` parses `config.phases` from the stored Artillery YAML to annotate charts; runs started outside `POST /api/runs` have no phases.
 - The UI type-checks as part of its build (`tsc --noEmit && vite build`). The root `tsc` does not cover `ui/` — run `cd ui && pnpm typecheck` to check it alone.
-- Routing is hash-based (`#/renders`), so no static-host rewrite rules are needed; the API server's SPA fallback serves `index.html` for unknown non-API GETs.
+- Routing is hash-based (`#/` → Overview, `#/runs` → run list, `#/compare` → compare, `#/runs/:id` → detail), so no static-host rewrite rules are needed; the API server's SPA fallback serves `index.html` for unknown non-API GETs.
 - Charts are hand-rolled SVG (`ui/src/chart-svg.ts` for scales/paths, `line-chart.ts` for rendering); colors come from CSS custom properties (`--chart-line-*`) so the dark/light toggle re-colors rendered paths without re-rendering. The SVG children are injected via `innerHTML` on the `<g>` — Lit `${...}` interpolations inside `<svg>` land in the XHTML namespace and don't render.
 - API calls go through `apiGet`/`api` in `ui/src/api.ts`, which centralizes the Bearer token and 401 handling. UI tests: `pnpm task ui:test` (Vitest) and `pnpm task ui:test:e2e` (Playwright, API stubbed — see the Testing section).
 

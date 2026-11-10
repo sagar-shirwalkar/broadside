@@ -82,10 +82,13 @@ export class LineChart extends LitElement {
   }
 
   override firstUpdated() {
-    // Seed synchronously so the first paint is already sized; the
-    // observer keeps it correct on resize.
-    if (this.clientWidth > 0) {
-      this.width = this.clientWidth;
+    // Seed after the update cycle so the first paint is already sized
+    // without triggering Lit's "update after update" dev warning.
+    const w = this.clientWidth;
+    if (w > 0 && w !== this.width) {
+      requestAnimationFrame(() => {
+        if (w !== this.width) this.width = w;
+      });
     }
   }
 
@@ -598,6 +601,7 @@ export class LineChart extends LitElement {
       border-radius: 8px;
       padding: var(--space-2) var(--space-3);
       font-size: var(--text-xs);
+      color: var(--amber);
       box-shadow: var(--shadow-card);
       white-space: nowrap;
       z-index: 2;
@@ -605,6 +609,7 @@ export class LineChart extends LitElement {
     .tooltip-time {
       font-weight: 600;
       margin-bottom: 2px;
+      color: var(--amber);
     }
     .tooltip-row {
       display: flex;
@@ -612,9 +617,10 @@ export class LineChart extends LitElement {
       gap: 6px;
     }
     .tooltip-name {
-      color: var(--text-muted);
+      color: var(--amber-dim);
     }
     .tooltip-value {
+      color: var(--amber);
       margin-left: auto;
       font-variant-numeric: tabular-nums;
       font-weight: 600;

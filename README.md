@@ -55,10 +55,10 @@ Broadside supports shared-secret Bearer authentication for the REST API (includi
 1. Launches Artillery runs and ingests their reports.
 2. Accepts metrics without blocking on database writes.
 3. Stores them in a time-series database built for high-volume append and range queries.
-4. Pre-aggregates them into `1m`, `1h`, and `1d` rollups.
+4. Pre-aggregates them into `10s`, `1m`, `1h`, and `1d` rollups.
 5. Exposes the data through a simple REST API.
 
-The dashboard lives in `ui/` (Lit + Shoelace + Vite) and talks to the same REST API described below; it does not change the ingestion contract.
+The dashboard lives in `ui/` (Lit + Vite) and talks to the same REST API described below; it does not change the ingestion contract. Pages: **Overview** (`#/`, drift detection), **Runs** (`#/runs`), **Compare** (`#/compare`), and run detail (`#/runs/:id`).
 
 ## Install
 
@@ -177,6 +177,15 @@ No global `task` or `buf` install is required; both come from dev dependencies.
 ## Usage
 
 ### Start the server
+
+```bash
+pnpm task dev:full      # API on :3000 + dashboard on :5173
+```
+
+The dashboard opens on the **Overview** page (`#/`): SLO status, the
+per-run p95/error-rate trend, run frequency, worst endpoints, recent
+runs, and regression alerts. Use the sidebar for **Runs** (`#/runs`),
+**Compare** (`#/compare`), or a run detail page (`#/runs/:id`).
 
 ```bash
 pnpm task dev      # REST + WebSocket on :3000, gRPC on :3001
@@ -365,12 +374,13 @@ curl -s "http://localhost:3000/api/runs/run-123/raw?from=2026-01-01T00:00:00Z"
 | `GET` | `/api/runs/:id` | Fetch one run, or `404` if it does not exist. |
 | `GET` | `/api/runs/:id/endpoints` | Distinct non-aggregate endpoints with sample counts. |
 | `GET` | `/api/runs/:id/phases` | Artillery phase boundaries from the stored script config. |
-| `GET` | `/api/runs/:id/metrics` | Aggregated metrics from the `1m`, `1h`, or `1d` continuous aggregate. |
+| `GET` | `/api/runs/:id/metrics` | Aggregated metrics from the `10s`, `1m`, `1h`, or `1d` continuous aggregate. |
 | `GET` | `/api/runs/:id/raw` | Raw metric points, limited to 100,000 rows. |
 | `GET` | `/api/runs/:id/live` | Server-Sent Events stream of raw points plus a terminal run event. |
 | `POST` | `/api/runs` | Start an Artillery run with `{ "script_path": "...", "id"?, "config"?, "extra_args"? }`. |
 | `DELETE` | `/api/runs/:id` | Kill a running run, or delete a finished run and its metrics. |
 | `GET` | `/api/health` | Health, uptime, database check, and flusher statistics. Public (no token). Returns `503` when the database is unreachable. |
+| `GET` | `/api/overview?days=<1\|7\|30>&frequency=<day\|week>` | Overview dashboard aggregates: SLO status, per-run p95/error-rate trend, run frequency, worst endpoints, regression alerts, and recent runs. Returns `meta` with the applied window/bucket. |
 | `WS` | `/ws` | JSON metric ingestion. |
 
 When `API_TOKEN` is set, the REST endpoints under `/api/runs` (including the SSE stream) and `/ws` require `Authorization: Bearer <token>`; `/api/health` does not. See [Security](#security).
@@ -388,7 +398,7 @@ When `API_TOKEN` is set, the REST endpoints under `/api/runs` (including the SSE
 
 | Parameter | Applies to | Type | Description |
 | --- | --- | --- | --- |
-| `granularity` | `/metrics` | `1m`, `1h`, or `1d` | Rollup view. Defaults to `1m`. |
+| `granularity` | `/metrics` | `10s`, `1m`, `1h`, or `1d` | Rollup view. Defaults to `1m`. |
 | `from` | all | ISO 8601 timestamp | Inclusive lower bound. Optional. |
 | `to` | all | ISO 8601 timestamp | Inclusive upper bound. Optional. |
 | `endpoint` | all | string | Exact endpoint match. Use the empty string for the aggregate row. Optional. |
@@ -521,6 +531,10 @@ All configuration is read in `src/config.ts` from environment variables (loaded 
 | `RING_CAPACITY` | `16384` | Ring buffer capacity. Rounded up to the next power of two. |
 | `FLUSH_BATCH_SIZE` | `5000` | Maximum points per database insert, and the size that triggers an early flush. |
 | `FLUSH_INTERVAL_MS` | `500` | How often the flusher drains the ring buffer. |
+| `SLO_P95_MS` | `400` | Headline p95 target for the Overview SLO strip ("p95 < 400ms: met in X% of last runs"). |
+| `SLO_ERROR_RATE` | `0.01` | Error-ratio target for the Overview SLO strip (0.01 = 1%). |
+| `SLO_WINDOW_RUNS` | `30` | How many recent completed runs back the SLO met-rate. |
+| `SLO_REGRESSION_DELTA` | `1.2` | Regression alert threshold: latest run's p95 > rolling median × this factor (1.2 = +20%). |
 
 ### Logging
 
@@ -578,7 +592,16 @@ proto/metrics/v1/ingest.proto
 ui/                     # Lit dashboard (own package.json, Vite build → ui/dist)
   index.html            # entry point, meta, manifest
   public/               # favicon.svg, manifest.json
-  src/                  # app shell, router, views, components, theme
+  src/
+    main.ts             # entry; mounts app, initializes theme
+    app/                # root shell (TEA): route, auth, layout, subscriptions
+    core/               # TEA runtime/cmd/types primitives
+    features/           # feature slices (overview, run-list, compare, run-detail, live, etc.)
+    components/         # stateless/dumb UI primitives (charts, select, status-dot, dialogs)
+    services/           # IO boundary (HTTP/SSE helpers; api.ts)
+    styles/             # tokens, theme, base, index (layered global styles)
+    views/              # compatibility shims re-exporting feature elements
+    router.ts, types.ts, format.ts, chart-svg.ts, derived-series.ts, lttb.ts, api.ts, theme.ts
 ```
 
 ### CI

@@ -11,10 +11,15 @@ import { normalizeBatch, normalizePoint } from "../src/lib/normalize.js";
 
 // A valid snake_case point generated from *typed* values: every field
 // guaranteed to pass the wire schema (finite numbers or numeric strings).
+//
+// Bounds: epoch millis are capped at ~2096-06 so `new Date()` stays
+// in valid JS territory across the whole fuzz domain.
+const EPOCH_MAX = 4_000_000_000_000;
+
 const validSnakePoint = fc.record({
   time_ms: fc.oneof(
-    fc.nat({ max: 4_000_000_000_000 }),
-    fc.nat({ max: 4_000_000_000_000 }).map(String),
+    fc.nat({ max: EPOCH_MAX }),
+    fc.nat({ max: EPOCH_MAX }).map(String),
   ),
   run_id: fc.string({ maxLength: 32 }),
   endpoint: fc.string({ maxLength: 64 }),
@@ -204,7 +209,7 @@ describe("normalize fuzz (fast-check)", () => {
 
   it("time_ms/time aliases are equivalent single-value alternatives", () => {
     fc.assert(
-      fc.property(fc.nat({ max: 4_000_000_000_000 }), (epoch) => {
+      fc.property(fc.nat({ max: EPOCH_MAX }), (epoch) => {
         expect(normalizePoint({ time_ms: epoch }).time.getTime()).toBe(epoch);
         expect(normalizePoint({ time: epoch }).time.getTime()).toBe(epoch);
       }),

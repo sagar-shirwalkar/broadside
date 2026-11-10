@@ -1,0 +1,81 @@
+/**
+ * Design tokens (primitives) — krivostr instrument palette, dark-first.
+ * Components consume these tokens only; theme overrides flip semantic values.
+ */
+
+:root {
+  color-scheme: dark;
+
+  /* ─── Surfaces ─── */
+  --ink:        #0a0b0e;   /* app background */
+  --ink-2:      #0f1115;   /* inset / demo blocks */
+  --graphite:   #16181d;   /* card/sheet surface */
+  --graphite-2: #1c1f26;   /* raised surface */
+  --rule:       #24272f;   /* 1px borders */
+  --rule-2:     #2f333d;   /* stronger borders */
+
+  /* ─── Text ─── */
+  --paper:      #e8e6e1;
+  --paper-2:    #b8b6b0;
+  --mute:       #6b6f76;
+  --mute-2:     #4a4e56;
+
+  /* ─── Accents ─── */
+  --amber:      #d4a15a;
+  --amber-dim:  #a87f3f;
+  --sage:       #7fb8b0;
+  --sage-dim:   #5a8e87;
+  --coral:      #e07a5f;
+  --indigo:     #6b7de0;
+
+  /* ─── Charts (green/red lines, translucent area under) ─── */
+  --chart-line-1: #7fb8b0;
+  --chart-line-2: #d4a15a;
+  --chart-line-3: #e07a5f;
+  --chart-line-4: #6b7de0;
+  --chart-line-5: #b79ce6;
+  --chart-grid: #24272f;
+  --chart-axis: #6b6f76;
+  --chart-tooltip-bg: #16181d;
+  --chart-tooltip-border: var(--amber);
+
+  /* ─── KPI chips ─── */
+  --chip-peach: #3a2d1c;
+  --chip-blush: #40261e;
+  --chip-mint: #1e3632;
+
+  /* ─── Type ─── */
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --step--2: 0.6875rem;
+  --step--1: clamp(0.75rem, 0.72rem + 0.15vw, 0.8125rem);
+  --step-0:  clamp(0.875rem, 0.84rem + 0.2vw, 0.9375rem);
+  --step-1:  clamp(1rem, 0.95rem + 0.25vw, 1.125rem);
+  --step-2:  clamp(1.25rem, 1.15rem + 0.5vw, 1.5rem);
+  --step-3:  clamp(1.75rem, 1.5rem + 1vw, 2.25rem);
+  --step-4:  clamp(2.5rem, 2rem + 2vw, 4rem);
+  --step-5:  clamp(3.5rem, 2.5rem + 4vw, 6rem);
+  --text-xs: var(--step--1);
+  --text-sm: var(--step-0);
+  --text-base: var(--step-0);
+  --text-lg: var(--step-2);
+  --text-xl: var(--step-3);
+
+  /* ─── Space ─── */
+  --s-1: 4px;  --s-2: 8px;  --s-3: 12px;  --s-4: 16px;
+  --s-5: 24px; --s-6: 32px; --s-7: 48px;  --s-8: 64px;
+  --s-9: 96px; --s-10: 128px;
+  --space-1: var(--s-1); --space-2: var(--s-2); --space-3: var(--s-3);
+  --space-4: var(--s-4); --space-5: var(--s-5); --space-6: var(--s-6);
+  --space-8: var(--s-8); --space-10: var(--s-10);
+
+  /* ─── Motion ─── */
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --dur-fast: 120ms; --dur: 220ms; --dur-slow: 420ms;
+
+  /* ─── Geometry ─── */
+  --radius: 8px;
+  --radius-lg: 14px;
+  --rule-w: 1px;
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.3), 0 4px 16px rgba(0, 0, 0, 0.3);
+}

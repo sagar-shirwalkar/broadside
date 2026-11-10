@@ -13,6 +13,7 @@ import { metricsFlusher } from "../lib/flusher.js";
 import { createAuthMiddleware } from "./middleware/auth.js";
 import runs from "./routes/runs.js";
 import health from "./routes/health.js";
+import overview from "./routes/overview.js";
 
 export function createApp(): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
@@ -125,6 +126,7 @@ export function createApp(): Hono<AppEnv> {
   // REST API
   app.route("/api/runs", runs);
   app.route("/api/health", health);
+  app.route("/api/overview", overview);
 
   // Dashboard (built into config.ui.distDir). Missing files fall through to
   // the notFound handler below, which serves the SPA entry point. The entry
