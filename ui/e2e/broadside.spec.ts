@@ -328,7 +328,7 @@ test("compare: selecting two runs renders charts and a KPI table", async ({
   await boxes.nth(1).check();
   await view.getByRole("button", { name: /compare/i }).click();
 
-  await expect(view.locator("table tbody tr")).toHaveCount(2);
+  await expect(view.locator(".table-card tbody tr")).toHaveCount(2);
   await expect(page.locator("broadside-line-chart")).toHaveCount(9);
 });
 
