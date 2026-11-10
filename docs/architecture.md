@@ -111,9 +111,8 @@ Only `10s`, `1m`, `1h`, and `1d` are valid granularities. The view name is selec
 
 - **`metrics`** — raw hypertable: `time`, `run_id`, `endpoint`, `rps`, `p50`, `p95`, `p99`, `error_rate`, plus per-bucket VU counter deltas (`vusers_started`, `vusers_stopped`, `vusers_created`, `vusers_completed`), absolute `error_count`, and response-time histogram quantiles (`hist_min`, `hist_max`, `hist_p75`, `hist_p90`, `hist_p999`). One-day chunks; index on `(run_id, time DESC)`. Aggregate rows use `endpoint = ''`; per-endpoint rows use the plugin's URL/request name. Aggregate error rate is VU-based; per-endpoint error rate is request-based. `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` statements exist so `db:init` upgrades pre-existing volumes in place; dropping and recreating the CAGGs gives them the new columns.
 - **`runs`** — run metadata: `id`, `started_at`, `duration_ms`, `total_requests`, `p50`, `p95`, `p99`, `error_rate`, `status`, `config_yaml`, `json_path`. `status` is `running`, `completed`, or `failed`; `json_path` is the persisted report location for orchestrated runs.
-- **Continuous aggregates** — `metrics_1m` is built from raw data; `metrics_1h` from `metrics_1m`; `metrics_1d` from `metrics_1h`.
 - **Policies** — continuous aggregates refresh on schedules; raw metrics compress after 7 days and are retained for 90 days.
-- `metrics_1m` and `metrics_1h` use `timescaledb.materialized_only = false`, so they include recent unmaterialized data. `metrics_1d` remains materialized-only.
+- `metrics_10s`, `metrics_1m`, and `metrics_1h` use `timescaledb.materialized_only = false`, so they include recent unmaterialized data. `metrics_1d` remains materialized-only.
 
 ## Key files
 
@@ -124,7 +123,7 @@ Only `10s`, `1m`, `1h`, and `1d` are valid granularities. The view name is selec
 | `src/types.ts` | Shared `MetricPoint`, `RunSummary`, `QueryParams`, `MetricBatch` types. |
 | `src/server/app.ts` | Hono app, `/ws` ingestion, route mounting, CORS and auth wiring. |
 | `src/server/middleware/auth.ts` | Bearer token authentication (constant-time compare, query-param fallback). |
-| `ui/` (own package) | Lit dashboard: hash router, views, SVG charts, theme. Vite build → `ui/dist`. |
+| `ui/` (own package) | Lit dashboard (TEA/MVU): hash router, `core/` runtime, `app/` shell, `features/` slices, `components/` primitives, `services/` IO boundary, `styles/`. Vite build → `ui/dist`. |
 | `src/server/grpc.ts` | Connect service implementation and proto → domain mapping. |
 | `src/server/kafka.ts` | Optional Kafka consumer lifecycle. |
 | `src/server/routes/runs.ts` | Run and metric query endpoints. |
@@ -138,7 +137,7 @@ Only `10s`, `1m`, `1h`, and `1d` are valid granularities. The view name is selec
 | `src/db/schema.sql` | Hypertable, runs table, continuous aggregates, policies. |
 | `proto/metrics/v1/ingest.proto` | gRPC/Connect service and message definitions. |
 | `src/gen/**` | Generated protobuf TypeScript; do not edit by hand. |
-| `ui/src/**` | Dashboard views/components (see `ui/src/`). |
+| `ui/src/**` | Dashboard source (TEA structure): `core/`, `app/`, `features/`, `components/`, `services/`, `styles/`, plus shared router/types/format/chart helpers and shims. |
 
 ## Known gaps and rough edges
 

@@ -107,7 +107,7 @@ pnpm task setup
 
 ## Dashboard (`ui/`)
 
-- `ui/` is its own package (own `package.json`, lockfile, and `pnpm-workspace.yaml` for the esbuild approval). `cd ui && pnpm install` sets it up; `pnpm task ui:dev` / `ui:build` wrap the Vite scripts.
+- `ui/` is its own package (own `package.json`, lockfile, and `pnpm-workspace.yaml` for the esbuild approval). `cd ui && pnpm install` sets it up; `pnpm task ui:dev` / `ui:build` wrap the Vite scripts. The dashboard is structured with TEA/MVU: `ui/src/core` (runtime), `app` (shell), `features/<name>` (model/update/cmds/view), `components` (stateless primitives), `services` (IO boundary), and `styles` (tokens/theme/base).
 - UI tests: `pnpm task ui:test` (Vitest, pure-logic: router parsing, formatters, chart geometry) and `pnpm task ui:test:e2e` (Playwright, 9 scenarios with the API stubbed at the network layer, so no database is needed). E2E needs browsers: `cd ui && pnpm exec playwright install chromium`. CI runs both.
 - The dashboard opens on the **Overview** page (`#/`): SLO status, per-run p95/error-rate trend, run frequency, worst endpoints, recent runs, and regression alerts. The **Runs** list moved to `#/runs`.
 - `GET /api/runs/:id/phases` parses `config.phases` from the stored Artillery YAML to annotate charts; runs started outside `POST /api/runs` have no phases.

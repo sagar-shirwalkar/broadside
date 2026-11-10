@@ -63,7 +63,8 @@
 ## Dashboard (`ui/`)
 
 - The UI is TypeScript with `strict: true` and `moduleResolution: bundler`; relative imports use the `.js` extension for consistency with the server.
-- Keep views focused on one responsibility; shared shapes live in `ui/src/types.ts`, display formatting in `ui/src/format.ts`, and HTTP in `ui/src/api.ts` (no ad-hoc `fetch` in views).
+- The UI follows TEA/MVU: `core/` (runtime/cmd/types), `app/` (root composition), `features/<name>/` (types/update/cmds/view/index), `components/` (stateless primitives), `services/` (IO boundary, e.g. `services/api.ts`), `styles/` (tokens/theme/base). Keep `update` pure and put IO in `cmds`/`services`.
+- Keep views/features focused on one responsibility; shared shapes live in `ui/src/types.ts`, display formatting in `ui/src/format.ts`, and HTTP in `ui/src/services/api.ts` (compat shim: `ui/src/api.ts`; no ad-hoc `fetch` in views).
 - Charts use CSS custom properties for colors (`--chart-line-*`), never hardcoded hex, so theming works on toggle.
 - UI dependencies stay minimal (Lit, Vite); charts are hand-rolled SVG with no charting library and no Tailwind. See `ui/src/chart-svg.ts` for the pure geometry and `ui/src/components/line-chart.ts` for rendering.
 

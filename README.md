@@ -55,7 +55,7 @@ Broadside supports shared-secret Bearer authentication for the REST API (includi
 1. Launches Artillery runs and ingests their reports.
 2. Accepts metrics without blocking on database writes.
 3. Stores them in a time-series database built for high-volume append and range queries.
-4. Pre-aggregates them into `1m`, `1h`, and `1d` rollups.
+4. Pre-aggregates them into `10s`, `1m`, `1h`, and `1d` rollups.
 5. Exposes the data through a simple REST API.
 
 The dashboard lives in `ui/` (Lit + Vite) and talks to the same REST API described below; it does not change the ingestion contract. Pages: **Overview** (`#/`, drift detection), **Runs** (`#/runs`), **Compare** (`#/compare`), and run detail (`#/runs/:id`).
@@ -374,7 +374,7 @@ curl -s "http://localhost:3000/api/runs/run-123/raw?from=2026-01-01T00:00:00Z"
 | `GET` | `/api/runs/:id` | Fetch one run, or `404` if it does not exist. |
 | `GET` | `/api/runs/:id/endpoints` | Distinct non-aggregate endpoints with sample counts. |
 | `GET` | `/api/runs/:id/phases` | Artillery phase boundaries from the stored script config. |
-| `GET` | `/api/runs/:id/metrics` | Aggregated metrics from the `1m`, `1h`, or `1d` continuous aggregate. |
+| `GET` | `/api/runs/:id/metrics` | Aggregated metrics from the `10s`, `1m`, `1h`, or `1d` continuous aggregate. |
 | `GET` | `/api/runs/:id/raw` | Raw metric points, limited to 100,000 rows. |
 | `GET` | `/api/runs/:id/live` | Server-Sent Events stream of raw points plus a terminal run event. |
 | `POST` | `/api/runs` | Start an Artillery run with `{ "script_path": "...", "id"?, "config"?, "extra_args"? }`. |
@@ -398,7 +398,7 @@ When `API_TOKEN` is set, the REST endpoints under `/api/runs` (including the SSE
 
 | Parameter | Applies to | Type | Description |
 | --- | --- | --- | --- |
-| `granularity` | `/metrics` | `1m`, `1h`, or `1d` | Rollup view. Defaults to `1m`. |
+| `granularity` | `/metrics` | `10s`, `1m`, `1h`, or `1d` | Rollup view. Defaults to `1m`. |
 | `from` | all | ISO 8601 timestamp | Inclusive lower bound. Optional. |
 | `to` | all | ISO 8601 timestamp | Inclusive upper bound. Optional. |
 | `endpoint` | all | string | Exact endpoint match. Use the empty string for the aggregate row. Optional. |
@@ -592,7 +592,16 @@ proto/metrics/v1/ingest.proto
 ui/                     # Lit dashboard (own package.json, Vite build → ui/dist)
   index.html            # entry point, meta, manifest
   public/               # favicon.svg, manifest.json
-  src/                  # app shell, router, views, components, theme
+  src/
+    main.ts             # entry; mounts app, initializes theme
+    app/                # root shell (TEA): route, auth, layout, subscriptions
+    core/               # TEA runtime/cmd/types primitives
+    features/           # feature slices (overview, run-list, compare, run-detail, live, etc.)
+    components/         # stateless/dumb UI primitives (charts, select, status-dot, dialogs)
+    services/           # IO boundary (HTTP/SSE helpers; api.ts)
+    styles/             # tokens, theme, base, index (layered global styles)
+    views/              # compatibility shims re-exporting feature elements
+    router.ts, types.ts, format.ts, chart-svg.ts, derived-series.ts, lttb.ts, api.ts, theme.ts
 ```
 
 ### CI
