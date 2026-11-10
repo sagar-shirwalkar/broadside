@@ -6,6 +6,9 @@ import type { ChartPoint, ChartSeries } from "../types.js";
 import "../components/line-chart.js";
 import "../components/kpi-card.js";
 import "../components/chart-panel.js";
+import "../components/info-tip.js";
+import "../components/status-dot.js";
+import "../components/select.js";
 
 interface SloEntry {
   key: string;
@@ -64,7 +67,19 @@ interface Overview {
   worst: WorstEndpoint[];
   regressions: Regression[];
   recentRuns: RecentRun[];
+  meta: { trendDays: number; frequencyInterval: string };
 }
+
+const TREND_OPTIONS = [
+  { value: "1", label: "1 day" },
+  { value: "7", label: "7 days" },
+  { value: "30", label: "30 days" },
+];
+
+const FREQUENCY_OPTIONS = [
+  { value: "day", label: "per day" },
+  { value: "week", label: "per week" },
+];
 
 function pct(v: number | null | undefined): string {
   if (v === null || v === undefined) return "—";
@@ -94,6 +109,12 @@ function latestRunCaption(point: TrendPoint | undefined): string {
   return `Latest: ${new Date(point.time).toLocaleDateString()} · ${point.runId.slice(0, 12)}`;
 }
 
+function statusTone(status: string): "ok" | "warn" | "bad" {
+  if (status === "completed") return "ok";
+  if (status === "failed") return "bad";
+  return "warn";
+}
+
 /**
  * Overview landing page: "are we drifting?" — the SLO strip, the
  * per-run p95/error trend, run cadence, worst endpoints, recent
@@ -104,6 +125,8 @@ function latestRunCaption(point: TrendPoint | undefined): string {
 export class OverviewView extends LitElement {
   @state() private data: Overview | null = null;
   @state() private error: string | null = null;
+  @state() private trendDays = "30";
+  @state() private frequencyInterval = "week";
 
   override connectedCallback(): void {
     super.connectedCallback();
@@ -113,10 +136,62 @@ export class OverviewView extends LitElement {
   private async load(): Promise<void> {
     this.error = null;
     try {
-      this.data = await apiGet<Overview>("/api/overview");
+      this.data = await apiGet<Overview>(
+        `/api/overview?days=${this.trendDays}&frequency=${this.frequencyInterval}`,
+      );
     } catch {
       this.error = "Could not load overview data";
     }
+  }
+
+  private onTrendDays(e: CustomEvent<{ value: string }>) {
+    this.trendDays = e.detail.value;
+    void this.load();
+  }
+
+  private onFrequency(e: CustomEvent<{ value: string }>) {
+    this.frequencyInterval = e.detail.value;
+    void this.load();
+  }
+
+  /** Aggregate SLO status: average met-rate across all SLOs. */
+  private sloSummary(): { pct: number; tone: "ok" | "warn" | "bad" | "nodata"; target: string } {
+    const slo = this.data?.slo ?? [];
+    if (!slo.length || slo.every((s) => s.total === 0)) {
+      return { pct: 0, tone: "nodata", target: "—" };
+    }
+    const avg = slo.reduce((acc, s) => acc + s.metPct, 0) / slo.length;
+    const tone = avg >= 0.9 ? "ok" : avg >= 0.75 ? "warn" : "bad";
+    const targets = slo
+      .map((s) =>
+        s.unit === "ms"
+          ? `p95 ≤ ${s.threshold}ms`
+          : `errors ≤ ${(s.threshold * 100).toFixed(1)}%`,
+      )
+      .join(" · ");
+    return { pct: avg, tone, target: targets };
+  }
+
+  private sloStrip() {
+    const { pct: pctVal, tone, target } = this.sloSummary();
+    const pctText = tone === "nodata" ? "—" : `${Math.round(pctVal * 100)}%`;
+    return html`
+      <div class="slo-strip">
+        <span class="slo-left">
+          <span class="slo-label">SLO Status</span>
+          <broadside-status-dot tone=${tone}></broadside-status-dot>
+          <span class="slo-value">${pctText}</span>
+        </span>
+        <span class="slo-right">
+          <span class="slo-target-label">SLO Target</span>
+          <span class="slo-target">${target}</span>
+          <broadside-info-tip
+            .text=${"The Service Level Objective percentage indicates current performance against its defined reliability target."}
+            .label=${"about SLO status"}
+          ></broadside-info-tip>
+        </span>
+      </div>
+    `;
   }
 
   private sloCards() {
@@ -145,7 +220,7 @@ export class OverviewView extends LitElement {
         value=${value}
         hint=${sloSummary(s, hint)}
         dot=${tone}
-        spark=${[]}
+        .spark=${[]}
       ></broadside-kpi-card>`;
     });
   }
@@ -155,29 +230,47 @@ export class OverviewView extends LitElement {
     const err = this.data?.trends.errorRate ?? [];
     const points = (pts: TrendPoint[]): ChartPoint[] =>
       pts.map((p) => ({ time: new Date(p.time).getTime(), value: p.value }));
+    const now = Date.now();
+    const domain: [number, number] = [now - Number(this.trendDays) * 86400_000, now];
     return html`
       <broadside-chart-panel
         title="Trend: p95 over time"
-        why="The single most important chart. One point per run — a slow upward drift is invisible in individual run views but obvious here."
+        .info=${"The single most important chart. One point per run — a slow upward drift is invisible in individual run views but obvious here."}
       >
+        <div slot="controls">
+          <broadside-select
+            .options=${TREND_OPTIONS}
+            .value=${this.trendDays}
+            @change=${this.onTrendDays}
+          ></broadside-select>
+        </div>
         <broadside-line-chart
           .series=${[{ name: "p95", colorIndex: 1, points: points(p95) } satisfies ChartSeries]}
           yFormat="ms"
           xFormat="time"
           .showDots=${true}
+          .domain=${domain}
           height=${200}
         ></broadside-line-chart>
         <div class="chart-footer">${latestRunCaption(p95.at(-1))}</div>
       </broadside-chart-panel>
       <broadside-chart-panel
         title="Trend: error rate"
-        why="Catches 'still fast but starting to fail' — errors creeping up while latency looks fine."
+        .info=${"Catches 'still fast but starting to fail' — errors creeping up while latency looks fine."}
       >
+        <div slot="controls">
+          <broadside-select
+            .options=${TREND_OPTIONS}
+            .value=${this.trendDays}
+            @change=${this.onTrendDays}
+          ></broadside-select>
+        </div>
         <broadside-line-chart
           .series=${[{ name: "error rate", colorIndex: 4, points: points(err) } satisfies ChartSeries]}
           yFormat="%"
           xFormat="time"
           .showDots=${true}
+          .domain=${domain}
           height=${200}
         ></broadside-line-chart>
         <div class="chart-footer">${latestRunCaption(err.at(-1))}</div>
@@ -190,16 +283,26 @@ export class OverviewView extends LitElement {
       time: new Date(f.day).getTime(),
       value: f.runs,
     }));
+    const now = Date.now();
+    const domain: [number, number] = [now - 30 * 86400_000, now];
     return html`
       <broadside-chart-panel
         title="Run frequency"
-        why="Testing cadence. A gap means nobody is running load tests — coverage you think you have, you don't."
+        .info=${"Testing cadence. A gap means nobody is running load tests — coverage you think you have, you don't."}
       >
+        <div slot="controls">
+          <broadside-select
+            .options=${FREQUENCY_OPTIONS}
+            .value=${this.frequencyInterval}
+            @change=${this.onFrequency}
+          ></broadside-select>
+        </div>
         <broadside-line-chart
           .series=${[{ name: "runs", colorIndex: 2, points: pts } satisfies ChartSeries]}
           yFormat="count"
           xFormat="time"
           kind="bars"
+          .domain=${domain}
           height=${160}
         ></broadside-line-chart>
       </broadside-chart-panel>
@@ -245,7 +348,7 @@ export class OverviewView extends LitElement {
     }
     return html`
       <div class="panel table-wrap">
-        <div class="panel-head">⚠ Regression alerts</div>
+        <div class="panel-head">Regression alerts</div>
         <ul class="alert-list">
           ${regs.map(
             (r) => html`<li>
@@ -288,7 +391,13 @@ export class OverviewView extends LitElement {
             ${rows.map(
               (r) => html`<tr @click=${() => navigate(`/runs/${encodeURIComponent(r.id)}`)}>
                 <td>${new Date(r.started_at).toLocaleString()}</td>
-                <td>${statusGlyph(r.status)}</td>
+                <td class="status-cell">
+                  <broadside-status-dot
+                    tone=${statusTone(r.status)}
+                    .pulse=${r.status === "running"}
+                  ></broadside-status-dot>
+                  ${r.status}
+                </td>
                 <td>${ms(r.p95)}</td>
                 <td>${pct(r.error_rate)}</td>
                 <td>${r.duration_ms === null ? "—" : `${(r.duration_ms / 1000).toFixed(1)}s`}</td>
@@ -308,6 +417,7 @@ export class OverviewView extends LitElement {
       return html`<div class="panel muted">Loading overview…</div>`;
     }
     return html`
+      <section class="slo-strip-wrap">${this.sloStrip()}</section>
       <section class="grid-slos">
         ${this.sloCards()}
       </section>
@@ -321,6 +431,45 @@ export class OverviewView extends LitElement {
     :host {
       display: block;
       color: var(--text-primary);
+    }
+    .slo-strip-wrap {
+      margin-bottom: 12px;
+    }
+    .slo-strip {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--s-3);
+      padding: var(--s-3) var(--s-4);
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+    }
+    .slo-left,
+    .slo-right {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--s-3);
+    }
+    .slo-label,
+    .slo-target-label {
+      font-family: var(--font-mono);
+      font-size: var(--step-0);
+      font-weight: 500;
+      color: var(--text);
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+    .slo-value {
+      font-family: var(--font-mono);
+      font-size: var(--step-0);
+      font-weight: 600;
+      color: var(--text);
+    }
+    .slo-target {
+      font-family: var(--font-mono);
+      font-size: var(--step-0);
+      color: var(--text);
     }
     .grid-slos {
       display: grid;
@@ -349,12 +498,16 @@ export class OverviewView extends LitElement {
       overflow: auto;
     }
     .panel-head {
-      font-family: var(--font-mono);
-      font-size: 12px;
-      text-transform: uppercase;
-      letter-spacing: var(--tracking-wide);
-      color: var(--text-primary);
       margin: 0 0 10px;
+      font-family: var(--font-mono);
+      font-size: var(--step-0);
+      font-weight: 500;
+      color: var(--text);
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      display: flex;
+      align-items: center;
+      gap: var(--s-2);
     }
     .data-table {
       width: 100%;
@@ -380,6 +533,11 @@ export class OverviewView extends LitElement {
     }
     .data-table tbody tr:hover {
       background: var(--surface-2);
+    }
+    .status-cell {
+      display: flex;
+      align-items: center;
+      gap: var(--s-2);
     }
     .muted {
       color: var(--text-muted);
@@ -425,17 +583,4 @@ export class OverviewView extends LitElement {
 
 function sloSummary(s: SloEntry, hint: string): string {
   return `${hint} (${sloStatusCopy(s.status)})`;
-}
-
-function statusGlyph(status: string): string {
-  switch (status) {
-    case "completed":
-      return "● completed";
-    case "failed":
-      return "● failed";
-    case "killed":
-      return "● killed";
-    default:
-      return `● ${status}`;
-  }
 }

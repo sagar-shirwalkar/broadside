@@ -10,6 +10,7 @@ import type {
   RunRow,
 } from "../types.js";
 import { formatDuration, formatMs, formatNumber, formatPercent, latencyClass } from "../format.js";
+import "../components/select.js";
 import {
   activeVusers,
   cdfFromLatest,
@@ -201,42 +202,36 @@ export class CompareView extends LitElement {
         <div class="card">
           <div class="actions">
             ${this.endpointOptions.length
-              ? html`<label class="field">
-                  <span class="label">Endpoint</span>
-                  <select
-                    class="select"
-                    .value=${this.endpoint}
-                    @change=${(e: Event) => {
-                      this.endpoint = (e.target as HTMLSelectElement).value;
-                      void this.compare();
-                    }}
-                  >
-                    <option value="">all (aggregate)</option>
-                    ${this.endpointOptions.map(
-                      (e) => html`<option value=${e.endpoint}>
-                        ${e.endpoint}
-                      </option>`,
-                    )}
-                  </select>
-                </label>`
+              ? html`<broadside-select
+                  label="Endpoint"
+                  .options=${[
+                    { value: "", label: "all (aggregate)" },
+                    ...this.endpointOptions.map((e) => ({
+                      value: e.endpoint,
+                      label: e.endpoint,
+                    })),
+                  ]}
+                  .value=${this.endpoint}
+                  @change=${(e: CustomEvent<{ value: string }>) => {
+                    this.endpoint = e.detail.value;
+                    void this.compare();
+                  }}
+                ></broadside-select>`
               : ""}
-            <label class="field">
-              <span class="label">Granularity</span>
-              <select
-                class="select"
-                .value=${this.granularity}
-                @change=${(e: Event) => {
-                  this.granularity = (e.target as HTMLSelectElement)
-                    .value as Granularity;
-                  if (this.data) void this.compare();
-                }}
-              >
-                <option value="10s">10 seconds</option>
-                <option value="1m">1 minute</option>
-                <option value="1h">1 hour</option>
-                <option value="1d">1 day</option>
-              </select>
-            </label>
+            <broadside-select
+              label="Granularity"
+              .options=${[
+                { value: "10s", label: "10 seconds" },
+                { value: "1m", label: "1 minute" },
+                { value: "1h", label: "1 hour" },
+                { value: "1d", label: "1 day" },
+              ]}
+              .value=${this.granularity}
+              @change=${(e: CustomEvent<{ value: string }>) => {
+                this.granularity = e.detail.value as Granularity;
+                if (this.data) void this.compare();
+              }}
+            ></broadside-select>
             <span class="count">
               ${this.selected.size} selected (max ${MAX_COMPARE})
             </span>

@@ -16,6 +16,7 @@ import { navigate } from "../router.js";
 import "../components/chart-panel.js";
 import "../components/endpoint-select.js";
 import "../components/skeleton.js";
+import "../components/status-dot.js";
 
 interface LivePoint {
   time: string;
@@ -210,7 +211,17 @@ export class LiveView extends LitElement {
               ← runs
             </button>
             <h3 class="mono">${this.runId.slice(0, 8)}</h3>
-            ${this.finished ? "" : html`<span class="status status-running"><span class="dot" aria-hidden="true"></span>live</span>`}
+            ${this.finished
+              ? html`<span class="status ${this.finished.status === "failed" ? "bad" : "ok"}">
+                  <broadside-status-dot
+                    tone=${this.finished.status === "failed" ? "bad" : "ok"}
+                  ></broadside-status-dot>
+                  ${this.finished.status}
+                </span>`
+              : html`<span class="status warn">
+                  <broadside-status-dot tone="warn" pulse></broadside-status-dot>
+                  live
+                </span>`}
           </div>
           <broadside-endpoint-select
             .runId=${this.runId}
@@ -351,21 +362,14 @@ export class LiveView extends LitElement {
       align-items: center;
       gap: var(--s-2);
     }
-    .status .dot {
-      width: 6px;
-      height: 6px;
-      border-radius: 50%;
-      background: var(--ok);
-      box-shadow: 0 0 8px var(--ok);
-    }
-    .status-running {
+    .status.ok {
       color: var(--ok);
     }
-    .status-failed {
+    .status.bad {
       color: var(--bad);
     }
-    .status-done {
-      color: var(--mute);
+    .status.warn {
+      color: var(--warn);
     }
     .notice {
       margin: 0;

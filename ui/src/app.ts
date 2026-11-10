@@ -114,7 +114,6 @@ export class App extends LitElement {
     }
 
     const dark = this.theme === "dark";
-    const status = this.runStatus;
 
     return html`
       <div class="shell">
@@ -176,12 +175,6 @@ export class App extends LitElement {
               <span class="glyph" aria-hidden="true">≡</span>
             </button>
             <span class="topbar-title">${this.topbarTitle()}</span>
-            ${status === "completed" || status === "running" || status === "failed"
-              ? html`<span class="topbar-status topbar-status-${status}">
-                  ${status === "completed" ? "✓" : status === "failed" ? "✕" : "●"}
-                  ${status}
-                </span>`
-              : ""}
             <span class="topbar-right">
               <broadside-health-badge></broadside-health-badge>
               <button
@@ -322,20 +315,6 @@ export class App extends LitElement {
       font-weight: 500;
       color: var(--text);
       letter-spacing: 0.01em;
-    }
-    .topbar-status {
-      font-size: var(--step--1);
-    }
-    .topbar-status-completed {
-      color: var(--ok);
-      font-weight: 600;
-    }
-    .topbar-status-running {
-      color: var(--ok);
-    }
-    .topbar-status-failed {
-      color: var(--bad);
-      font-weight: 600;
     }
     .topbar-right {
       margin-left: auto;

@@ -33,6 +33,8 @@ import { navigate } from "../router.js";
 import "../components/kpi-card.js";
 import "../components/chart-panel.js";
 import "../components/endpoint-select.js";
+import "../components/status-dot.js";
+import "../components/select.js";
 import "../components/skeleton.js";
 import "../components/confirm-dialog.js";
 import "./not-found.js";
@@ -366,9 +368,8 @@ export class RunDetail extends LitElement {
     void this.loadMetrics();
   }
 
-  private onGranularityChange(event: Event) {
-    this.granularity = (event.target as HTMLSelectElement)
-      .value as Granularity;
+  private onGranularityChange(event: CustomEvent<{ value: string }>) {
+    this.granularity = event.detail.value as Granularity;
     this.zoomByPanel = new Map();
     this.rawByPanel = new Map();
     void this.loadMetrics();
@@ -424,16 +425,21 @@ export class RunDetail extends LitElement {
             <h3 class="mono">${run.id.slice(0, 8)}</h3>
           </div>
           <div class="header-actions">
-            <button
-              class="btn"
-              ?disabled=${run.status !== "running"}
-              title=${run.status === "running"
-                ? "watch this run live"
-                : "run finished — the dashboard below is the full report"}
-              @click=${() => navigate(`/runs/${run.id}/live`)}
-            >
-              ● live
-            </button>
+            ${run.status === "running"
+              ? html`<button
+                  class="btn status-btn"
+                  @click=${() => navigate(`/runs/${run.id}/live`)}
+                  title="watch this run live"
+                >
+                  <broadside-status-dot tone="warn" pulse></broadside-status-dot>
+                  live
+                </button>`
+              : html`<span class="run-status ${run.status === "failed" ? "bad" : "ok"}">
+                  <broadside-status-dot
+                    tone=${run.status === "failed" ? "bad" : "ok"}
+                  ></broadside-status-dot>
+                  ${run.status}
+                </span>`}
             <button class="btn danger" @click=${() => (this.confirmOpen = true)}>
               ${run.status === "running" ? "✕ kill" : "✕ delete"}
             </button>
@@ -495,19 +501,17 @@ export class RunDetail extends LitElement {
             .value=${this.endpoint}
             @endpoint-change=${this.onEndpointChange}
           ></broadside-endpoint-select>
-          <label class="field">
-            <span class="label">Granularity</span>
-            <select
-              class="select"
-              .value=${this.granularity}
-              @change=${this.onGranularityChange}
-            >
-              <option value="10s">10 seconds</option>
-              <option value="1m">1 minute</option>
-              <option value="1h">1 hour</option>
-              <option value="1d">1 day</option>
-            </select>
-          </label>
+          <broadside-select
+            label="Granularity"
+            .options=${[
+              { value: "10s", label: "10 seconds" },
+              { value: "1m", label: "1 minute" },
+              { value: "1h", label: "1 hour" },
+              { value: "1d", label: "1 day" },
+            ]}
+            .value=${this.granularity}
+            @change=${this.onGranularityChange}
+          ></broadside-select>
         </div>
 
         <div class="grid">
@@ -677,7 +681,27 @@ export class RunDetail extends LitElement {
     }
     .header-actions {
       display: flex;
+      align-items: center;
       gap: var(--s-2);
+    }
+    .status-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--s-2);
+    }
+    .run-status {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--s-2);
+      font-family: var(--font-mono);
+      font-size: var(--step--1);
+      padding: var(--s-1) var(--s-3);
+    }
+    .run-status.ok {
+      color: var(--ok);
+    }
+    .run-status.bad {
+      color: var(--bad);
     }
     .btn {
       font-family: var(--font-mono);

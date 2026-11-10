@@ -52,7 +52,7 @@
   --chart-grid: #24272f;
   --chart-axis: #6b6f76;
   --chart-tooltip-bg: #16181d;
-  --chart-tooltip-border: #2f333d;
+  --chart-tooltip-border: var(--amber);
 
   /* ─── KPI chips ─── */
   --chip-peach: #3a2d1c;
@@ -116,7 +116,7 @@
   --chart-grid: #eceae4;
   --chart-axis: #a0a4ac;
   --chart-tooltip-bg: #ffffff;
-  --chart-tooltip-border: #e2e0d9;
+  --chart-tooltip-border: var(--amber);
   --chip-peach: #f3ead9;
   --chip-blush: #f6e3db;
   --chip-mint: #ddebe7;

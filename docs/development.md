@@ -79,7 +79,7 @@ pnpm task setup
 ## Reading run data
 
 - `GET /api/runs?limit=&offset=` — paginate the run list; `limit` is 1–100 (default 100), `offset` is ≥ 0.
-- `GET /api/overview` — one-shot landing-page aggregates: SLO status (p95/error-rate met-rates over the last `SLO_WINDOW_RUNS` completed runs), per-run p95 and error-rate trend from `metrics_1d` grouped by `run_id` (30 days), run frequency (`date_trunc('day')`), worst endpoints by average p95 (30 days), regression alerts (latest run's per-endpoint p95 vs. rolling median), and the 5 most recent runs.
+- `GET /api/overview?days=<1|7|30>&frequency=<day|week>` — one-shot landing-page aggregates: SLO status (p95/error-rate met-rates over the last `SLO_WINDOW_RUNS` completed runs), per-run p95 and error-rate trend from `metrics_1d` grouped by `run_id` over `?days` (default `30`), run frequency bucketed by `?frequency` over 30 days (default `day`), worst endpoints by average p95 (30 days), regression alerts (latest run's per-endpoint p95 vs. rolling median), and the 5 most recent runs. Returns `meta: { trendDays, frequencyInterval }`.
 - `GET /api/runs/:id/endpoints` — distinct non-aggregate endpoints with sample counts; what the dashboard uses to render filter tabs.
 - `GET /api/runs/:id/metrics` and `/raw` accept `endpoint=` for server-side filtering. The aggregate row is `endpoint=`.
 - `GET /api/runs/compare?ids=a,b,c` — metadata plus one series per run. `ids` is required, 2–10 after de-duplication; `granularity`/`from`/`to`/`endpoint` work as on `/metrics`.

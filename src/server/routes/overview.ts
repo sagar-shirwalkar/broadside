@@ -23,6 +23,18 @@ const WORST_ENDPOINTS_LIMIT = 10;
 const REGRESSION_RUNS_BASELINE = 10;
 const REGRESSION_LIMIT = 10;
 
+const TREND_DAYS_OPTIONS = [1, 7, 30] as const;
+const FREQUENCY_INTERVALS = ["day", "week"] as const;
+
+function parseTrendDays(value: string | undefined): number {
+  const n = Number(value);
+  return (TREND_DAYS_OPTIONS as readonly number[]).includes(n) ? n : 30;
+}
+
+function parseFrequencyInterval(value: string | undefined): "day" | "week" {
+  return value === "week" ? "week" : "day";
+}
+
 function sloStatus(total: number, met: number): string {
   if (total === 0) return "nodata";
   const pct = met / total;
@@ -53,17 +65,28 @@ function toSlo(key: SloKey, total: number, met: number): Record<string, unknown>
 }
 
 overview.get("/", async (c) => {
+  const trendDays = parseTrendDays(c.req.query("days"));
+  const frequencyInterval = parseFrequencyInterval(c.req.query("frequency"));
+
   const [slo, trends, frequency, worst, regressions, recentRuns] =
     await Promise.all([
       overviewSlo(),
-      overviewTrends(),
-      overviewFrequency(),
+      overviewTrends(trendDays),
+      overviewFrequency(frequencyInterval),
       overviewWorst(),
       overviewRegressions(),
       overviewRecentRuns(),
     ]);
 
-  return c.json({ slo, trends, frequency, worst, regressions, recentRuns });
+  return c.json({
+    slo,
+    trends,
+    frequency,
+    worst,
+    regressions,
+    recentRuns,
+    meta: { trendDays, frequencyInterval },
+  });
 });
 
 async function overviewSlo(): Promise<Record<string, unknown>[]> {
@@ -104,11 +127,11 @@ interface TrendRow {
 }
 
 /**
- * One point per run over the last 30 days: the CAGG grouped by
+ * One point per run over the requested window: the CAGG grouped by
  * `run_id`. A run spanning several daily buckets contributes the
  * average of its bucket averages, at its earliest bucket.
  */
-async function overviewTrends(): Promise<Record<string, unknown>> {
+async function overviewTrends(days: number): Promise<Record<string, unknown>> {
   const rows = (await sql`
     SELECT
       min(bucket) AS bucket,
@@ -116,7 +139,7 @@ async function overviewTrends(): Promise<Record<string, unknown>> {
       avg(p95) AS p95,
       avg(error_rate) AS error_rate
     FROM metrics_1d
-    WHERE bucket > now() - INTERVAL '30 days'
+    WHERE bucket > now() - make_interval(days => ${days})
     GROUP BY run_id
     ORDER BY bucket
   `) as TrendRow[];
@@ -140,9 +163,11 @@ interface FrequencyRow {
   runs: number | string;
 }
 
-async function overviewFrequency(): Promise<unknown[]> {
+async function overviewFrequency(
+  interval: "day" | "week",
+): Promise<unknown[]> {
   const rows = (await sql`
-    SELECT date_trunc('day', started_at)::date AS day, count(*)::bigint AS runs
+    SELECT date_trunc(${interval}, started_at) AS day, count(*)::bigint AS runs
     FROM runs
     WHERE started_at > now() - INTERVAL '30 days'
     GROUP BY day

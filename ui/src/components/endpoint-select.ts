@@ -2,6 +2,7 @@ import { LitElement, css, html } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import { apiGet } from "../api.js";
 import type { EndpointRow } from "../types.js";
+import "./select.js";
 
 export const ALL_ENDPOINTS = "";
 
@@ -45,11 +46,10 @@ export class EndpointSelect extends LitElement {
     }
   }
 
-  private onChange(event: Event) {
-    const select = event.target as HTMLSelectElement;
+  private onChange(event: CustomEvent<{ value: string }>) {
     this.dispatchEvent(
       new CustomEvent("endpoint-change", {
-        detail: { endpoint: select.value },
+        detail: { endpoint: event.detail.value },
         bubbles: true,
         composed: true,
       }),
@@ -57,21 +57,17 @@ export class EndpointSelect extends LitElement {
   }
 
   override render() {
+    const options = [
+      { value: "", label: "all (aggregate)" },
+      ...this.endpoints.map((e) => ({ value: e.endpoint, label: e.endpoint })),
+    ];
     return html`
-      <label class="field">
-        <span class="label">${this.label}</span>
-        <select
-          class="select"
-          .value=${this.value}
-          ?disabled=${this.loading}
-          @change=${this.onChange}
-        >
-          <option value="">all (aggregate)</option>
-          ${this.endpoints.map(
-            (e) => html`<option value=${e.endpoint}>${e.endpoint}</option>`,
-          )}
-        </select>
-      </label>
+      <broadside-select
+        .label=${this.label}
+        .options=${options}
+        .value=${this.value}
+        @change=${this.onChange}
+      ></broadside-select>
     `;
   }
 

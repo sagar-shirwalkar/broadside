@@ -63,10 +63,12 @@ describe("overview routes", () => {
     });
   });
 
-  it("GET / returns all panels", async () => {
+  it("GET / returns all panels with defaults", async () => {
     const res = await client.index.$get();
     expect(res.status).toBe(200);
     const body = await res.json();
+
+    expect(body.meta).toEqual({ trendDays: 30, frequencyInterval: "day" });
 
     expect(body.slo).toHaveLength(2);
     expect(body.slo[0]).toMatchObject({
@@ -109,6 +111,20 @@ describe("overview routes", () => {
 
     expect(body.recentRuns).toHaveLength(1);
     expect(body.recentRuns[0]).toMatchObject({ id: "run-x", status: "completed" });
+  });
+
+  it("accepts ?days and ?frequency query params", async () => {
+    const res = await client.index.$get({ query: { days: "7", frequency: "week" } });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.meta).toEqual({ trendDays: 7, frequencyInterval: "week" });
+  });
+
+  it("falls back to defaults for invalid query params", async () => {
+    const res = await client.index.$get({ query: { days: "99", frequency: "month" } });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.meta).toEqual({ trendDays: 30, frequencyInterval: "day" });
   });
 
   it("SLO with no runs returns nodata status", async () => {

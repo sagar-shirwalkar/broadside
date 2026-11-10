@@ -6,6 +6,8 @@ import { formatDuration, formatMs, formatNumber, formatPercent, latencyClass, re
 import { navigate } from "../router.js";
 import "../components/skeleton.js";
 import "../components/confirm-dialog.js";
+import "../components/status-dot.js";
+import "../components/select.js";
 
 const PAGE_SIZES = [25, 50, 100];
 
@@ -79,16 +81,16 @@ export class RunList extends LitElement {
     return out;
   }
 
-  private statusGlyph(status: RunStatus): string {
-    if (status === "running") return "●";
-    if (status === "failed") return "✕";
-    return "✓";
+  private statusTone(status: RunStatus): "ok" | "warn" | "bad" {
+    if (status === "completed") return "ok";
+    if (status === "failed") return "bad";
+    return "warn";
   }
 
-  private statusClass(status: RunStatus): string {
-    if (status === "running") return "status-running";
-    if (status === "failed") return "status-failed";
-    return "status-done";
+  private statusTextClass(status: RunStatus): string {
+    if (status === "completed") return "status-ok";
+    if (status === "failed") return "status-bad";
+    return "status-warn";
   }
 
   private askDelete(row: RunRow) {
@@ -189,8 +191,11 @@ export class RunList extends LitElement {
                           ${formatMs(row.p99)}
                         </td>
                         <td>${formatPercent(row.error_rate)}</td>
-                        <td class=${this.statusClass(row.status)}>
-                          <span class="glyph" aria-hidden="true">${this.statusGlyph(row.status)}</span>
+                        <td class="status-cell ${this.statusTextClass(row.status)}">
+                          <broadside-status-dot
+                            tone=${this.statusTone(row.status)}
+                            .pulse=${row.status === "running"}
+                          ></broadside-status-dot>
                           ${row.status}
                         </td>
                         <td>
@@ -369,17 +374,21 @@ export class RunList extends LitElement {
     .muted {
       color: var(--mute);
     }
-    .glyph {
+    .status-cell {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--s-2);
+      font-family: var(--font-mono);
       font-size: var(--step--1);
     }
-    .status-running {
+    .status-ok {
       color: var(--ok);
     }
-    .status-failed {
+    .status-bad {
       color: var(--bad);
     }
-    .status-done {
-      color: var(--mute);
+    .status-warn {
+      color: var(--warn);
     }
     .icon-btn {
       background: transparent;

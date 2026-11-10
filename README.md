@@ -380,7 +380,7 @@ curl -s "http://localhost:3000/api/runs/run-123/raw?from=2026-01-01T00:00:00Z"
 | `POST` | `/api/runs` | Start an Artillery run with `{ "script_path": "...", "id"?, "config"?, "extra_args"? }`. |
 | `DELETE` | `/api/runs/:id` | Kill a running run, or delete a finished run and its metrics. |
 | `GET` | `/api/health` | Health, uptime, database check, and flusher statistics. Public (no token). Returns `503` when the database is unreachable. |
-| `GET` | `/api/overview` | Overview dashboard aggregates: SLO status (p95/error-rate met-rates over the last `SLO_WINDOW_RUNS` runs), 30-day per-run trends, run frequency, worst endpoints, regression alerts, and the 5 most recent runs. |
+| `GET` | `/api/overview?days=<1\|7\|30>&frequency=<day\|week>` | Overview dashboard aggregates: SLO status, per-run p95/error-rate trend, run frequency, worst endpoints, regression alerts, and recent runs. Returns `meta` with the applied window/bucket. |
 | `WS` | `/ws` | JSON metric ingestion. |
 
 When `API_TOKEN` is set, the REST endpoints under `/api/runs` (including the SSE stream) and `/ws` require `Authorization: Bearer <token>`; `/api/health` does not. See [Security](#security).

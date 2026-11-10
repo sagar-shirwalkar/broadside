@@ -37,6 +37,27 @@ export class ChartPanel extends LitElement {
     );
   }
 
+  override attributeChangedCallback(
+    name: string,
+    old: string | null,
+    value: string | null,
+  ) {
+    if (name === "title") {
+      // Keep the heading text, but strip the host `title` attribute so
+      // the browser's native tooltip doesn't obscure chart hover data.
+      // Removing the attribute re-enters this callback with value=null;
+      // ignore that pass so the property isn't cleared.
+      if (value !== null) {
+        this.title = value;
+      }
+      if (this.hasAttribute("title")) {
+        this.removeAttribute("title");
+      }
+      return;
+    }
+    super.attributeChangedCallback(name, old, value);
+  }
+
   override render() {
     return html`
       <section class="card">
