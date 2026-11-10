@@ -1,0 +1,44 @@
+/* Semantic aliases and theme overrides. */
+
+:root {
+  /* ─── Semantic aliases ─── */
+  --bg:         var(--ink);
+  --surface:    var(--graphite);
+  --surface-2:  var(--graphite-2);
+  --border:     var(--rule);
+  --text:       var(--paper);
+  --text-dim:   var(--paper-2);
+  --accent:     var(--amber);
+  --accent-2:   var(--sage);
+  --ok:         var(--sage);
+  --warn:       var(--amber);
+  --bad:        var(--coral);
+}
+
+[data-theme="light"] {
+  color-scheme: light;
+  --ink:        #fafaf7;
+  --ink-2:      #f3f2ee;
+  --graphite:   #ffffff;
+  --graphite-2: #f5f4f0;
+  --rule:       #e2e0d9;
+  --rule-2:     #d4d2cb;
+  --paper:      #14161a;
+  --paper-2:    #3a3d44;
+  --mute:       #767a82;
+  --mute-2:     #a0a4ac;
+  /* accents intentionally unchanged: amber/sage/coral/indigo stay put */
+  --chart-line-1: #5a8e87;
+  --chart-line-2: #b07f3f;
+  --chart-line-3: #c05c42;
+  --chart-line-4: #6b7de0;
+  --chart-line-5: #9b7bd4;
+  --chart-grid: #eceae4;
+  --chart-axis: #a0a4ac;
+  --chart-tooltip-bg: #ffffff;
+  --chart-tooltip-border: var(--amber);
+  --chip-peach: #f3ead9;
+  --chip-blush: #f6e3db;
+  --chip-mint: #ddebe7;
+  --shadow-card: 0 1px 2px rgba(20, 22, 26, 0.04), 0 4px 16px rgba(20, 22, 26, 0.03);
+}
