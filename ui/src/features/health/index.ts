@@ -6,8 +6,9 @@ import { formatDuration } from "../../format.js";
 const POLL_MS = 30_000;
 
 /**
- * Topbar status indicator. Polls /readyz for rich status (DB + flusher).
- * Falls back to disconnected when unreachable/degraded probe fails.
+ * Topbar status indicator. Polls /readyz for aggregate system health.
+ * Green + "healthy" when all services (dashboard, ingest, db) are live/responsive.
+ * Red + "broken" otherwise.
  */
 @customElement("broadside-health-badge")
 export class HealthBadge extends LitElement {
@@ -32,6 +33,7 @@ export class HealthBadge extends LitElement {
       const body = (await res.json()) as HealthResponse;
       if (!body.flusher) throw new Error("malformed ready payload");
       this.health = body;
+      // "unreachable" here means we couldn't determine health; only treat as reachable if probe responded.
       this.unreachable = false;
     } catch {
       this.unreachable = true;
@@ -39,18 +41,35 @@ export class HealthBadge extends LitElement {
     }
   }
 
+  private isHealthy(): boolean {
+    if (this.unreachable || !this.health) return false;
+    if (typeof this.health.healthy === "boolean") return this.health.healthy;
+    const s = this.health.services;
+    if (s) {
+      return s.dashboard === "ok" && s.ingest === "ok" && s.database === "ok";
+    }
+    // Backward-compat fallback
+    return this.health.status === "ok" && this.health.database?.status === "ok";
+  }
+
   private dotClass(): string {
-    if (this.unreachable) return "dot-bad";
-    if (this.health?.status === "degraded") return "dot-bad";
-    return "dot-ok";
+    return this.isHealthy() ? "dot-ok" : "dot-bad";
+  }
+
+  private statusLabel(): string {
+    return this.isHealthy() ? "healthy" : "broken";
   }
 
   private tooltipText(): string {
-    if (this.unreachable) return "server unreachable";
+    if (this.unreachable) return "status: broken (unreachable)";
     if (!this.health) return "checking…";
     const { uptime, flusher, database } = this.health;
+    const services = this.health.services;
+    const svcLine = services
+      ? `services: dashboard=${services.dashboard} ingest=${services.ingest} db=${services.database}`
+      : `status: ${this.health.status} · db: ${database.status}`;
     const lines = [
-      `status: ${this.health.status} · db: ${database.status}`,
+      svcLine,
       `uptime: ${formatDuration(Math.round(uptime * 1000))}`,
       `buffered: ${flusher.buffered} · dropped: ${flusher.dropped} · flushed: ${flusher.flushed}`,
     ];
@@ -74,9 +93,7 @@ export class HealthBadge extends LitElement {
     return html`
       <span class="badge" role="status" title=${this.tooltipText()}>
         <span class="dot ${this.dotClass()}"></span>
-        <span class="text">
-          ${this.unreachable ? "disconnected" : "connected"}
-        </span>
+        <span class="text">${this.statusLabel()}</span>
         ${this.health?.flusher.dropped
           ? html`<span class="warn" aria-hidden="true">⚠</span>`
           : ""}

@@ -73,6 +73,12 @@ export interface CompareResponse {
 
 export interface HealthResponse {
   status: "ok" | "degraded";
+  healthy?: boolean;
+  services?: {
+    dashboard: "ok" | "error";
+    ingest: "ok" | "error";
+    database: "ok" | "error";
+  };
   uptime: number;
   database: { status: "ok" | "error" };
   flusher: {

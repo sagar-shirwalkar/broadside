@@ -45,6 +45,8 @@ describe("health route", () => {
     const body = await res.json();
     expect(body).toMatchObject({
       status: "ok",
+      healthy: true,
+      services: { dashboard: "ok", ingest: "ok", database: "ok" },
       database: { status: "ok" },
       flusher: h.stats,
     });
@@ -61,6 +63,8 @@ describe("health route", () => {
     const body = await res.json();
     expect(body).toMatchObject({
       status: "degraded",
+      healthy: false,
+      services: { dashboard: "ok", ingest: "ok", database: "error" },
       database: { status: "error" },
       flusher: h.stats,
     });

@@ -64,6 +64,8 @@ const METRICS = [
 
 const HEALTH = {
   status: "ok",
+  healthy: true,
+  services: { dashboard: "ok", ingest: "ok", database: "ok" },
   uptime: 120,
   database: { status: "ok" },
   flusher: { buffered: 0, dropped: 0, flushed: 42 },
@@ -126,6 +128,15 @@ const OVERVIEW = {
 
 async function stubApi(page: Page, options: { authGate?: boolean } = {}) {
   const seen: string[] = [];
+
+  await page.route("**/readyz", async (route) => {
+    seen.push(`${route.request().method()} /readyz`);
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(HEALTH),
+    });
+  });
 
   await page.route("**/api/**", async (route) => {
     const request = route.request();
@@ -230,6 +241,7 @@ test("login: a 401 shows the login page and a token unlocks the app", async ({
   await page.locator("broadside-login .btn").click();
 
   await expect(page.locator("broadside-overview-view")).toBeVisible();
+  await expect(page.locator("broadside-health-badge")).toContainText("healthy");
   await expect(page.locator("broadside-overview-view")).toContainText("SLO Status");
 });
 
@@ -237,6 +249,7 @@ test("overview: shows SLO strip, panels, recent runs and regression link", async
   page,
 }) => {
   await signIn(page);
+  await expect(page.locator("broadside-health-badge")).toContainText("healthy");
   const overview = page.locator("broadside-overview-view");
   await expect(overview).toContainText("SLO Status");
   await expect(overview).toContainText("SLO Target");

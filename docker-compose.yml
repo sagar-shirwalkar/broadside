@@ -7,7 +7,7 @@ services:
     environment:
       - SERVICE_ROLE=api
       - PORT=${PORT:-3000}
-      - DATABASE_URL=${DATABASE_URL:-postgres://postgres:postgres@db:5432/artillery}
+      - DATABASE_URL=postgres://postgres:postgres@db:5432/artillery
       - INGEST_URL=${INGEST_URL:-ws://ingest:${INGEST_SERVICE_PORT:-3002}/ws}
       - ARTILLERY_REPORT_DIR=/app/data/reports
       - LOG_LEVEL=${LOG_LEVEL:-info}
@@ -53,7 +53,7 @@ services:
       - SERVICE_ROLE=ingest
       - PORT=${INGEST_SERVICE_PORT:-3002}
       - INGEST_PORT=${INGEST_SERVICE_PORT:-3002}
-      - DATABASE_URL=${DATABASE_URL:-postgres://postgres:postgres@db:5432/artillery}
+      - DATABASE_URL=postgres://postgres:postgres@db:5432/artillery
       - ARTILLERY_REPORT_DIR=/app/data/reports
       - LOG_LEVEL=${LOG_LEVEL:-info}
       - API_TOKEN=${API_TOKEN:-}
