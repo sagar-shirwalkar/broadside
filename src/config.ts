@@ -5,6 +5,10 @@ export const config = {
   port: parseInt(process.env.PORT ?? "3000", 10),
   /** Optional separate port for WebSocket ingest (/ws). 0 disables and keeps /ws on the main port. */
   ingestPort: parseInt(process.env.INGEST_PORT ?? "0", 10),
+  /** all | api | ingest */
+  serviceRole: (process.env.SERVICE_ROLE ?? "all") as "all" | "api" | "ingest",
+  /** Public/base URL for ingest WS (used by clients/orchestrator when split). */
+  ingestUrl: process.env.INGEST_URL ?? "",
   databaseUrl: process.env.DATABASE_URL!,
 
   log: {
@@ -92,6 +96,10 @@ export const config = {
     capacity: parseInt(process.env.RING_CAPACITY ?? "16384", 10),
     batchSize: parseInt(process.env.FLUSH_BATCH_SIZE ?? "5000", 10),
     flushIntervalMs: parseInt(process.env.FLUSH_INTERVAL_MS ?? "500", 10),
+    /** Number of independent flusher shards (hash-mod by run_id). */
+    shards: Math.max(1, parseInt(process.env.FLUSH_SHARDS ?? "4", 10)),
+    /** Ring-depth ratio above which WS producers receive slow_down hints. */
+    slowDownThreshold: Number(process.env.INGEST_SLOWDOWN_THRESHOLD ?? "0.8"),
   },
 
   slo: {

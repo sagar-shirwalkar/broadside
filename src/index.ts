@@ -30,45 +30,67 @@ async function main() {
   metricsFlusher.start();
   await startKafkaConsumer();
 
-  // ─── REST + WebSocket (HTTP/1.1) ───
-  const app = createApp();
-  const wss = new WebSocketServer({ noServer: true });
-
-  const server = serve({
-    fetch: app.fetch,
-    port: config.port,
-    websocket: { server: wss },
-  }) as HttpServer;
-  tuneHttpServer(server);
-
-  // Optional dedicated ingest listener to isolate WS accept/socket budget.
+  let server: HttpServer | null = null;
+  let wss: WebSocketServer | null = null;
   let ingestServer: HttpServer | null = null;
   let ingestWss: WebSocketServer | null = null;
-  if (config.ingestPort > 0 && config.ingestPort !== config.port) {
+  let grpcServer: http2.Http2Server | null = null;
+
+  if (config.serviceRole === "api" || config.serviceRole === "all") {
+    // ─── REST + (optional) WebSocket (HTTP/1.1) ───
+    const app = createApp();
+    wss = new WebSocketServer({ noServer: true });
+    server = serve({
+      fetch: app.fetch,
+      port: config.port,
+      websocket: { server: wss },
+    }) as HttpServer;
+    tuneHttpServer(server);
+
+    // Optional dedicated ingest listener on same instance to isolate WS accept/socket budget.
+    if (
+      config.serviceRole === "all" &&
+      config.ingestPort > 0 &&
+      config.ingestPort !== config.port
+    ) {
+      const ingestApp = createIngestApp();
+      ingestWss = new WebSocketServer({ noServer: true });
+      ingestServer = serve({
+        fetch: ingestApp.fetch,
+        port: config.ingestPort,
+        websocket: { server: ingestWss },
+      }) as HttpServer;
+      tuneHttpServer(ingestServer);
+    }
+  }
+
+  if (config.serviceRole === "ingest") {
     const ingestApp = createIngestApp();
     ingestWss = new WebSocketServer({ noServer: true });
     ingestServer = serve({
       fetch: ingestApp.fetch,
-      port: config.ingestPort,
+      port: config.ingestPort > 0 ? config.ingestPort : config.port,
       websocket: { server: ingestWss },
     }) as HttpServer;
     tuneHttpServer(ingestServer);
   }
 
-  // ─── Connect / gRPC (HTTP/2) ───
-  const grpcServer = http2.createServer(
-    connectNodeAdapter({ routes: connectRoutes }),
-  );
-  grpcServer.listen(config.port + 1);
+  if (config.serviceRole === "api" || config.serviceRole === "all") {
+    // ─── Connect / gRPC (HTTP/2) ───
+    grpcServer = http2.createServer(
+      connectNodeAdapter({ routes: connectRoutes }),
+    );
+    grpcServer.listen(config.port + 1);
+  }
 
-  logger.info({ port: config.port }, "[server] REST + WebSocket listening");
+  if (server) logger.info({ port: config.port, role: config.serviceRole }, "[server] REST listening");
   if (ingestServer) {
     logger.info(
-      { port: config.ingestPort },
-      "[server] dedicated ingest WebSocket listening",
+      { port: config.ingestPort > 0 ? config.ingestPort : config.port, role: config.serviceRole },
+      "[server] ingest WebSocket listening",
     );
   }
-  logger.info({ port: config.port + 1 }, "[server] gRPC listening");
+  if (grpcServer) logger.info({ port: config.port + 1 }, "[server] gRPC listening");
   logger.info(
     { enabled: config.kafka.enabled },
     `[server] kafka: ${config.kafka.enabled ? "enabled" : "disabled"}`,
@@ -78,17 +100,15 @@ async function main() {
     logger.info("[server] shutting down");
     await metricsFlusher.stop();
     await stopKafkaConsumer();
-    // Orphaned Artillery children outlive their parent — terminate them so
-    // a restart does not leak running load tests (and their memory).
     const killed = killAllRuns();
     if (killed > 0) {
       logger.info({ killed }, "[server] terminated artillery child processes");
     }
-    wss.close();
+    wss?.close();
     ingestWss?.close();
-    server.close();
+    server?.close();
     ingestServer?.close();
-    grpcServer.close();
+    grpcServer?.close();
     logger.flush();
     process.exit(0);
   };

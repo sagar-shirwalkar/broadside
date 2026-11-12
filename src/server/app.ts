@@ -35,6 +35,14 @@ function registerWsIngest(app: Hono<AppEnv>): void {
           const capped = points.slice(0, config.ingest.maxBatchPoints);
           if (capped.length > 0) {
             metricsFlusher.ingest(capped);
+            if (metricsFlusher.shouldSlowDown()) {
+              try {
+                ws.send(JSON.stringify({ type: "slow_down", target_hz: 1 }));
+                metricsFlusher.noteSlowDownSent();
+              } catch {
+                // best-effort control frame
+              }
+            }
           }
         } catch {
           ws.send(JSON.stringify({ error: "invalid message" }));
@@ -135,21 +143,13 @@ export function createApp(): Hono<AppEnv> {
   app.route("/api/health", health);
   app.route("/api/overview", overview);
 
-  // Cheap liveness for probes/load balancers (no DB). Keep /api/health as
-  // detailed readiness-compatible payload for existing UI/consumers.
+  // Probe aliases
   app.get("/livez", (c) =>
-    c.json({
-      status: "ok",
-      uptime: process.uptime(),
-      timestamp: new Date().toISOString(),
-    }),
+    c.json({ status: "ok", uptime: process.uptime(), timestamp: new Date().toISOString() }),
   );
   app.get("/readyz", async (c) => {
     const res = await health.request("/ready");
-    return new Response(res.body, {
-      status: res.status,
-      headers: res.headers,
-    });
+    return new Response(res.body, { status: res.status, headers: res.headers });
   });
 
   // Dashboard (built into config.ui.distDir). Missing files fall through to
@@ -202,6 +202,10 @@ export function createIngestApp(): Hono<AppEnv> {
   app.get("/livez", (c) =>
     c.json({ status: "ok", uptime: process.uptime(), timestamp: new Date().toISOString() }),
   );
+  app.get("/readyz", async (c) => {
+    const res = await health.request("/ready");
+    return new Response(res.body, { status: res.status, headers: res.headers });
+  });
 
   app.notFound((c) => c.json({ error: "not found" }, 404));
   return app;

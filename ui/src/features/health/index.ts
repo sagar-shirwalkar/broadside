@@ -6,10 +6,8 @@ import { formatDuration } from "../../format.js";
 const POLL_MS = 30_000;
 
 /**
- * Topbar status indicator. Polls /api/health every 30s: green dot when
- * connected, red when the server is unreachable. A native `title`
- * tooltip carries uptime + flusher stats; dropped points get a warning
- * glyph.
+ * Topbar status indicator. Polls /readyz for rich status (DB + flusher).
+ * Falls back to disconnected when unreachable/degraded probe fails.
  */
 @customElement("broadside-health-badge")
 export class HealthBadge extends LitElement {
@@ -29,12 +27,10 @@ export class HealthBadge extends LitElement {
   }
 
   private async poll() {
-    // /api/health is public and must never toast — poll with plain fetch.
     try {
-      const res = await fetch("/api/health");
-      if (!res.ok) throw new Error(`health ${res.status}`);
+      const res = await fetch("/readyz");
       const body = (await res.json()) as HealthResponse;
-      if (!body.flusher) throw new Error("malformed health payload");
+      if (!body.flusher) throw new Error("malformed ready payload");
       this.health = body;
       this.unreachable = false;
     } catch {
@@ -44,18 +40,34 @@ export class HealthBadge extends LitElement {
   }
 
   private dotClass(): string {
-    return this.unreachable ? "dot-bad" : "dot-ok";
+    if (this.unreachable) return "dot-bad";
+    if (this.health?.status === "degraded") return "dot-bad";
+    return "dot-ok";
   }
 
   private tooltipText(): string {
     if (this.unreachable) return "server unreachable";
     if (!this.health) return "checking…";
     const { uptime, flusher, database } = this.health;
-    return [
+    const lines = [
       `status: ${this.health.status} · db: ${database.status}`,
       `uptime: ${formatDuration(Math.round(uptime * 1000))}`,
       `buffered: ${flusher.buffered} · dropped: ${flusher.dropped} · flushed: ${flusher.flushed}`,
-    ].join("\n");
+    ];
+    if (typeof flusher.dbWriteErrors === "number") {
+      lines.push(`db write errors: ${flusher.dbWriteErrors}`);
+    }
+    if (flusher.ringDepth) {
+      lines.push(
+        `ring depth: ${flusher.ringDepth.current} (max 1m: ${flusher.ringDepth.maxLastMinute})`,
+      );
+    }
+    if (flusher.flushLatencyMs) {
+      lines.push(
+        `flush latency ms p50/p95/p99: ${Math.round(flusher.flushLatencyMs.p50)}/${Math.round(flusher.flushLatencyMs.p95)}/${Math.round(flusher.flushLatencyMs.p99)}`,
+      );
+    }
+    return lines.join("\n");
   }
 
   override render() {

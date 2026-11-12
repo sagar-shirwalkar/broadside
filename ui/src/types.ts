@@ -81,6 +81,10 @@ export interface HealthResponse {
     lastFlushAt?: string | null;
     lastFlushDurationMs?: number;
     maxBuffered?: number;
+    slowDownSent?: number;
+    shards?: number;
+    flushLatencyMs?: { p50: number; p95: number; p99: number };
+    ringDepth?: { current: number; maxLastMinute: number };
   };
   timestamp: string;
 }

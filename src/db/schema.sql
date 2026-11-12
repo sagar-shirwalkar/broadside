@@ -57,12 +57,16 @@ CREATE TABLE IF NOT EXISTS runs (
   error_rate      DOUBLE PRECISION,
   status          TEXT NOT NULL DEFAULT 'running',
   failure_reason  TEXT,
+  partial_data    BOOLEAN NOT NULL DEFAULT FALSE,
+  dropped_points  BIGINT NOT NULL DEFAULT 0,
   config_yaml     TEXT,
   json_path       TEXT
 );
 
 -- Existing volumes: upgrade in place.
 ALTER TABLE runs ADD COLUMN IF NOT EXISTS failure_reason TEXT;
+ALTER TABLE runs ADD COLUMN IF NOT EXISTS partial_data BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE runs ADD COLUMN IF NOT EXISTS dropped_points BIGINT NOT NULL DEFAULT 0;
 
 -- Continuous Aggregates (hierarchical)
 -- NOTE: GROUP BY is positional on purpose. `GROUP BY bucket` in the 1h/1d

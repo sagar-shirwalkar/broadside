@@ -58,6 +58,25 @@ function parseCompareIds(value: string | undefined): string[] {
 
 // ─── List runs (paginated) ───
 
+function encodeCursor(startedAt: unknown, id: string): string {
+  const ts = startedAt instanceof Date ? startedAt.toISOString() : String(startedAt);
+  return Buffer.from(`${ts}|${id}`, "utf8").toString("base64url");
+}
+
+function decodeCursor(cursor: string): { startedAt: string; id: string } | null {
+  try {
+    const raw = Buffer.from(cursor, "base64url").toString("utf8");
+    const idx = raw.lastIndexOf("|");
+    if (idx <= 0) return null;
+    const startedAt = raw.slice(0, idx);
+    const id = raw.slice(idx + 1);
+    if (!id || Number.isNaN(Date.parse(startedAt))) return null;
+    return { startedAt, id };
+  } catch {
+    return null;
+  }
+}
+
 runs.get("/", async (c) => {
   const limit = parseIntParam(
     c.req.query("limit"),
@@ -75,14 +94,39 @@ runs.get("/", async (c) => {
   );
   if (offset === null) return c.json({ error: "invalid offset" }, 400);
 
-  const rows = await sql`
-    SELECT id, started_at, duration_ms, total_requests,
-           p50, p95, p99, error_rate, status, failure_reason
-    FROM runs
-    ORDER BY started_at DESC
-    LIMIT ${limit}
-    OFFSET ${offset}
-  `;
+  const cursor = c.req.query("cursor");
+  const decoded = cursor ? decodeCursor(cursor) : null;
+  if (cursor && !decoded) return c.json({ error: "invalid cursor" }, 400);
+
+  const rows = decoded
+    ? await sql`
+        SELECT id, started_at, duration_ms, total_requests,
+               p50, p95, p99, error_rate, status, failure_reason
+        FROM runs
+        WHERE (started_at, id) < (${decoded.startedAt}::timestamptz, ${decoded.id})
+        ORDER BY started_at DESC, id DESC
+        LIMIT ${limit}
+      `
+    : await sql`
+        SELECT id, started_at, duration_ms, total_requests,
+               p50, p95, p99, error_rate, status, failure_reason
+        FROM runs
+        ORDER BY started_at DESC, id DESC
+        LIMIT ${limit}
+        OFFSET ${offset}
+      `;
+
+  const payload = JSON.stringify(rows);
+  const etag = `W/"runs-${Buffer.from(payload).length}-${rows.length}"`;
+  c.header("Cache-Control", "private, max-age=5");
+  c.header("ETag", etag);
+  if (rows.length > 0) {
+    const last = rows[rows.length - 1] as any;
+    c.header("X-Next-Cursor", encodeCursor(last.started_at, String(last.id)));
+  }
+  if (c.req.header("if-none-match") === etag) {
+    return c.body(null, 304);
+  }
   return c.json(rows);
 });
 

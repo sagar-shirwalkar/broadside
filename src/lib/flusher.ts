@@ -4,26 +4,84 @@ import { sql } from "../db/client.js";
 import { logger } from "../logger.js";
 import type { MetricPoint } from "../types.js";
 
+interface Shard {
+  ring: RingBuffer<MetricPoint>;
+  flushing: boolean;
+  totalFlushed: number;
+  dbWriteErrors: number;
+  lastFlushAt: string | null;
+  lastFlushDurationMs: number;
+  maxBuffered: number;
+  latencySamples: number[]; // recent flush latencies (ms)
+}
+
+function percentile(values: number[], p: number): number {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const idx = Math.min(sorted.length - 1, Math.max(0, Math.ceil(p * sorted.length) - 1));
+  return sorted[idx] ?? 0;
+}
+
+function hashRunId(runId: string, shards: number): number {
+  // FNV-1a 32-bit
+  let h = 0x811c9dc5;
+  for (let i = 0; i < runId.length; i++) {
+    h ^= runId.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return (h >>> 0) % shards;
+}
+
 export class MetricsFlusher {
-  private ring: RingBuffer<MetricPoint>;
+  private shards: Shard[] = [];
   private timer: NodeJS.Timeout | null = null;
-  private flushing = false;
-  private totalFlushed = 0;
-  private dbWriteErrors = 0;
-  private lastFlushAt: string | null = null;
-  private lastFlushDurationMs = 0;
-  private maxBuffered = 0;
+  private depthSampler: NodeJS.Timeout | null = null;
+  private lossTimer: NodeJS.Timeout | null = null;
+  private slowDownSent = 0;
+  private depthSamples: Array<{ ts: number; depth: number }> = [];
+  private droppedByRun = new Map<string, number>();
 
   constructor() {
-    this.ring = new RingBuffer<MetricPoint>(config.ring.capacity);
+    const shardCount = Math.max(1, Number(config.ring.shards ?? 1) || 1);
+    const perShardCapacity = Math.max(
+      2,
+      Math.ceil((config.ring.capacity ?? 16384) / shardCount),
+    );
+    for (let i = 0; i < shardCount; i++) {
+      this.shards.push({
+        ring: new RingBuffer<MetricPoint>(perShardCapacity),
+        flushing: false,
+        totalFlushed: 0,
+        dbWriteErrors: 0,
+        lastFlushAt: null,
+        lastFlushDurationMs: 0,
+        maxBuffered: 0,
+        latencySamples: [],
+      });
+    }
   }
 
   start(): void {
     this.timer = setInterval(() => {
-      void this.flush();
+      for (let i = 0; i < this.shards.length; i++) void this.flushShard(i);
     }, config.ring.flushIntervalMs);
-    // Don't keep process alive just for the timer
     this.timer.unref();
+
+    this.depthSampler = setInterval(() => {
+      const now = Date.now();
+      const depth = this.totalBuffered();
+      this.depthSamples.push({ ts: now, depth });
+      const cutoff = now - 60_000;
+      while (this.depthSamples.length > 0 && this.depthSamples[0]!.ts < cutoff) {
+        this.depthSamples.shift();
+      }
+    }, 1000);
+    this.depthSampler.unref();
+
+    this.lossTimer = setInterval(() => {
+      void this.applyRunLossAccounting();
+    }, 2000);
+    this.lossTimer.unref();
   }
 
   async stop(): Promise<void> {
@@ -31,38 +89,172 @@ export class MetricsFlusher {
       clearInterval(this.timer);
       this.timer = null;
     }
-    // Best-effort final drain; do not re-queue indefinitely on shutdown.
-    await this.flush(false);
+    if (this.depthSampler) {
+      clearInterval(this.depthSampler);
+      this.depthSampler = null;
+    }
+    if (this.lossTimer) {
+      clearInterval(this.lossTimer);
+      this.lossTimer = null;
+    }
+    await Promise.all(this.shards.map((_, i) => this.flushShard(i, false)));
+    await this.applyRunLossAccounting();
   }
 
-  /** O(1) — called by all ingestion paths. */
+  /** O(1) per point — called by all ingestion paths. */
   ingest(points: MetricPoint[]): void {
-    this.ring.pushBatch(points);
-    if (this.ring.size > this.maxBuffered) this.maxBuffered = this.ring.size;
-    if (this.ring.size >= config.ring.batchSize) {
-      void this.flush();
+    if (points.length === 0) return;
+    // Group by shard to preserve locality and reduce contention.
+    const buckets: MetricPoint[][] = Array.from({ length: this.shards.length }, () => []);
+    for (const p of points) {
+      const idx = hashRunId(p.runId, this.shards.length);
+      buckets[idx]!.push(p);
+    }
+    for (let i = 0; i < buckets.length; i++) {
+      const batch = buckets[i]!;
+      if (batch.length === 0) continue;
+      const shard = this.shards[i]!;
+      const beforeDropped = shard.ring.dropped;
+      shard.ring.pushBatch(batch);
+      const deltaDropped = shard.ring.dropped - beforeDropped;
+      if (deltaDropped > 0) {
+        this.recordDropped(batch, deltaDropped);
+      }
+      if (shard.ring.size > shard.maxBuffered) shard.maxBuffered = shard.ring.size;
+      if (shard.ring.size >= config.ring.batchSize) {
+        void this.flushShard(i);
+      }
     }
   }
 
+  private recordDropped(batch: MetricPoint[], count: number): void {
+    // Attribute drops approximately by points present in this shard batch.
+    // Best-effort accounting for observability (not billing-grade).
+    if (count <= 0) return;
+    const perRun = new Map<string, number>();
+    for (const p of batch) perRun.set(p.runId, (perRun.get(p.runId) ?? 0) + 1);
+    const total = batch.length || 1;
+    let remaining = count;
+    for (const [runId, n] of perRun) {
+      const share = Math.max(0, Math.round((count * n) / total));
+      if (share <= 0) continue;
+      remaining -= share;
+      this.droppedByRun.set(runId, (this.droppedByRun.get(runId) ?? 0) + share);
+    }
+    if (remaining > 0) {
+      const fallback = batch[0]?.runId ?? "unknown";
+      this.droppedByRun.set(fallback, (this.droppedByRun.get(fallback) ?? 0) + remaining);
+    }
+  }
+
+  /** Best-effort snapshot and reset of per-run drop counters. */
+  drainDroppedByRun(): Map<string, number> {
+    const snapshot = new Map(this.droppedByRun);
+    this.droppedByRun.clear();
+    return snapshot;
+  }
+
+  private async applyRunLossAccounting(): Promise<void> {
+    const drops = this.drainDroppedByRun();
+    if (drops.size === 0) return;
+    for (const [runId, dropped] of drops) {
+      if (!runId || runId === "unknown" || dropped <= 0) continue;
+      try {
+        await sql`
+          UPDATE runs
+          SET partial_data = TRUE,
+              dropped_points = COALESCE(dropped_points, 0) + ${dropped},
+              failure_reason = COALESCE(failure_reason, ${"ring_overflow"})
+          WHERE id = ${runId}
+        `;
+      } catch (err) {
+        logger.error(
+          { err, runId, dropped },
+          "[flusher] failed to persist run loss accounting",
+        );
+      }
+    }
+  }
+
+  shouldSlowDown(): boolean {
+    const cap = this.totalCapacity();
+    if (cap <= 0) return false;
+    return this.totalBuffered() / cap >= config.ring.slowDownThreshold;
+  }
+
+  noteSlowDownSent(): void {
+    this.slowDownSent += 1;
+  }
+
+  private totalBuffered(): number {
+    let n = 0;
+    for (const s of this.shards) n += s.ring.size;
+    return n;
+  }
+
+  private totalCapacity(): number {
+    let n = 0;
+    for (const s of this.shards) n += s.ring.capacity;
+    return n;
+  }
+
   get stats() {
+    let buffered = 0;
+    let dropped = 0;
+    let flushed = 0;
+    let dbWriteErrors = 0;
+    let maxBuffered = 0;
+    let lastFlushAt: string | null = null;
+    let lastFlushDurationMs = 0;
+    const allLatencies: number[] = [];
+    for (const s of this.shards) {
+      buffered += s.ring.size;
+      dropped += s.ring.dropped;
+      flushed += s.totalFlushed;
+      dbWriteErrors += s.dbWriteErrors;
+      maxBuffered += s.maxBuffered;
+      if (s.lastFlushAt && (!lastFlushAt || s.lastFlushAt > lastFlushAt)) {
+        lastFlushAt = s.lastFlushAt;
+        lastFlushDurationMs = s.lastFlushDurationMs;
+      }
+      allLatencies.push(...s.latencySamples);
+    }
+    const latencies = allLatencies.slice(-200);
+    const depthCurrent = buffered;
+    let depthMaxLastMinute = depthCurrent;
+    for (const sample of this.depthSamples) {
+      if (sample.depth > depthMaxLastMinute) depthMaxLastMinute = sample.depth;
+    }
     return {
-      buffered: this.ring.size,
-      dropped: this.ring.dropped,
-      flushed: this.totalFlushed,
-      dbWriteErrors: this.dbWriteErrors,
-      lastFlushAt: this.lastFlushAt,
-      lastFlushDurationMs: this.lastFlushDurationMs,
-      maxBuffered: this.maxBuffered,
+      buffered,
+      dropped,
+      flushed,
+      dbWriteErrors,
+      lastFlushAt,
+      lastFlushDurationMs,
+      maxBuffered,
+      slowDownSent: this.slowDownSent,
+      shards: this.shards.length,
+      flushLatencyMs: {
+        p50: percentile(latencies, 0.5),
+        p95: percentile(latencies, 0.95),
+        p99: percentile(latencies, 0.99),
+      },
+      ringDepth: {
+        current: depthCurrent,
+        maxLastMinute: depthMaxLastMinute,
+      },
     };
   }
 
-  private async flush(requeueOnError = true): Promise<void> {
-    if (this.flushing) return;
-    this.flushing = true;
+  private async flushShard(index: number, requeueOnError = true): Promise<void> {
+    const shard = this.shards[index];
+    if (!shard || shard.flushing) return;
+    shard.flushing = true;
 
     try {
-      while (this.ring.size > 0) {
-        const batch = this.ring.drain(config.ring.batchSize);
+      while (shard.ring.size > 0) {
+        const batch = shard.ring.drain(config.ring.batchSize ?? 5000);
         if (batch.length === 0) break;
 
         const started = Date.now();
@@ -90,25 +282,32 @@ export class MetricsFlusher {
               hist_p999: p.histP999 ?? null,
             })))}
           `;
-          this.totalFlushed += batch.length;
-          this.lastFlushDurationMs = Date.now() - started;
-          this.lastFlushAt = new Date().toISOString();
+          shard.totalFlushed += batch.length;
+          const dur = Date.now() - started;
+          shard.lastFlushDurationMs = dur;
+          shard.lastFlushAt = new Date().toISOString();
+          shard.latencySamples.push(dur);
+          if (shard.latencySamples.length > 200) {
+            shard.latencySamples.splice(0, shard.latencySamples.length - 200);
+          }
         } catch (err) {
-          this.dbWriteErrors += 1;
-          logger.error({ err }, "[flusher] write failed");
+          shard.dbWriteErrors += 1;
+          logger.error({ err, shard: index }, "[flusher] write failed");
           if (requeueOnError) {
-            this.ring.pushBatch(batch);
+            shard.ring.pushBatch(batch);
           } else {
             logger.warn(
-              { dropped: batch.length },
+              { shard: index, dropped: batch.length },
               "[flusher] dropping batch during shutdown after write failure",
             );
+            // best-effort accounting as lost points for affected runs
+            this.recordDropped(batch, batch.length);
           }
           break;
         }
       }
     } finally {
-      this.flushing = false;
+      shard.flushing = false;
     }
   }
 }

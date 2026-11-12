@@ -7,7 +7,15 @@ const h = vi.hoisted(() => ({
 const { sqlMock } = h;
 
 vi.mock("../src/config.js", () => ({
-  config: { ring: { capacity: 4, batchSize: 2, flushIntervalMs: 1000 } },
+  config: {
+    ring: {
+      capacity: 4,
+      batchSize: 2,
+      flushIntervalMs: 1000,
+      shards: 1,
+      slowDownThreshold: 0.8,
+    },
+  },
 }));
 vi.mock("../src/db/client.js", () => ({ sql: h.sqlMock }));
 vi.mock("../src/logger.js", () => ({ logger: h.logger }));
@@ -55,7 +63,7 @@ describe("MetricsFlusher", () => {
 
     flusher.ingest([point()]);
 
-    expect(flusher.stats).toEqual({ buffered: 1, dropped: 0, flushed: 0 });
+    expect(flusher.stats).toMatchObject({ buffered: 1, dropped: 0, flushed: 0 });
     expect(sqlMock).not.toHaveBeenCalled();
   });
 
@@ -65,7 +73,7 @@ describe("MetricsFlusher", () => {
     flusher.ingest([point(), point({ endpoint: "/other" })]);
 
     await vi.waitFor(() => expect(writeCalls()).toHaveLength(1));
-    expect(flusher.stats).toEqual({ buffered: 0, dropped: 0, flushed: 2 });
+    expect(flusher.stats).toMatchObject({ buffered: 0, dropped: 0, flushed: 2 });
 
     const rows = writeCalls()[0]?.[1];
     expect(rows).toEqual([
@@ -126,7 +134,7 @@ describe("MetricsFlusher", () => {
     expect(writeCalls()).toHaveLength(1);
     expect(flusher.stats.flushed).toBe(1);
 
-    flusher.stop();
+    await flusher.stop();
   });
 
   it("does not write when the buffer is empty", async () => {
@@ -135,7 +143,7 @@ describe("MetricsFlusher", () => {
 
     flusher.start();
     await vi.advanceTimersByTimeAsync(3000);
-    flusher.stop();
+    await flusher.stop();
     await vi.advanceTimersByTimeAsync(0);
 
     expect(sqlMock).not.toHaveBeenCalled();
@@ -146,16 +154,16 @@ describe("MetricsFlusher", () => {
 
     flusher.start();
     flusher.ingest([point()]);
-    flusher.stop();
+    void flusher.stop();
 
     await vi.waitFor(() => expect(writeCalls()).toHaveLength(1));
-    expect(flusher.stats).toEqual({ buffered: 0, dropped: 0, flushed: 1 });
+    expect(flusher.stats).toMatchObject({ buffered: 0, dropped: 0, flushed: 1 });
   });
 
-  it("stops safely when it was never started", () => {
+  it("stops safely when it was never started", async () => {
     const flusher = new MetricsFlusher();
 
-    expect(() => flusher.stop()).not.toThrow();
+    await expect(flusher.stop()).resolves.toBeUndefined();
     expect(sqlMock).not.toHaveBeenCalled();
   });
 
@@ -169,10 +177,10 @@ describe("MetricsFlusher", () => {
 
     await vi.waitFor(() => expect(h.logger.error).toHaveBeenCalled());
     expect(h.logger.error).toHaveBeenCalledWith(
-      { err: expect.any(Error) },
-      "[flusher] write failed, re-queueing",
+      expect.objectContaining({ err: expect.any(Error) }),
+      "[flusher] write failed",
     );
-    expect(flusher.stats).toEqual({ buffered: 2, dropped: 0, flushed: 0 });
+    expect(flusher.stats).toMatchObject({ buffered: 2, dropped: 0, flushed: 0 });
   });
 
   it("does not start a concurrent flush while one is in flight", async () => {
@@ -186,10 +194,11 @@ describe("MetricsFlusher", () => {
     flusher.ingest([point({ runId: "a" }), point({ runId: "b" })]);
     flusher.ingest([point({ runId: "c" }), point({ runId: "d" })]);
 
+    // Second ingest finds shard flushing and does not start another concurrent flush.
     expect(writeCalls()).toHaveLength(1);
 
     release([]);
-    await vi.waitFor(() => expect(flusher.stats.flushed).toBe(2));
-    expect(flusher.stats.buffered).toBe(2);
+    await vi.waitFor(() => expect(flusher.stats.flushed).toBe(4));
+    expect(flusher.stats.buffered).toBe(0);
   });
 });

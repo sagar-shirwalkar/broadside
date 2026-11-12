@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const h = vi.hoisted(() => ({
   state: { factory: null as null | (() => any) },
   ingest: vi.fn(),
+  shouldSlowDown: vi.fn(() => false),
+  noteSlowDownSent: vi.fn(),
   logger: { info: vi.fn(), error: vi.fn() },
 }));
 
@@ -22,6 +24,8 @@ vi.mock("node:fs", () => ({
 vi.mock("../src/lib/flusher.js", () => ({
   metricsFlusher: {
     ingest: h.ingest,
+    shouldSlowDown: h.shouldSlowDown,
+    noteSlowDownSent: h.noteSlowDownSent,
     stats: { buffered: 0, dropped: 0, flushed: 0 },
   },
 }));

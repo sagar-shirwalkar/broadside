@@ -2,31 +2,114 @@ services:
   dashboard:
     build: .
     ports:
-      - "3000:3000"
+      - "${PORT:-3000}:${PORT:-3000}"
+      - "${GRPC_PORT:-3001}:${GRPC_PORT:-3001}"
     environment:
-      - DATABASE_URL=postgres://postgres:postgres@db:5432/artillery
-      # - KAFKA_BROKERS=kafka:9092
-      # - KAFKA_TOPIC=artillery.metrics
+      - SERVICE_ROLE=api
+      - PORT=${PORT:-3000}
+      - DATABASE_URL=${DATABASE_URL:-postgres://postgres:postgres@db:5432/artillery}
+      - INGEST_URL=${INGEST_URL:-ws://ingest:3002/ws}
+      - ARTILLERY_REPORT_DIR=/app/data/reports
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - API_TOKEN=${API_TOKEN:-}
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}
+      - SERVER_KEEP_ALIVE_TIMEOUT_MS=${SERVER_KEEP_ALIVE_TIMEOUT_MS:-65000}
+      - SERVER_HEADERS_TIMEOUT_MS=${SERVER_HEADERS_TIMEOUT_MS:-66000}
+      - SERVER_REQUEST_TIMEOUT_MS=${SERVER_REQUEST_TIMEOUT_MS:-120000}
+      - SERVER_MAX_REQUESTS_PER_SOCKET=${SERVER_MAX_REQUESTS_PER_SOCKET:-1000}
+      # - KAFKA_BROKERS=${KAFKA_BROKERS:-}
+      # - KAFKA_TOPIC=${KAFKA_TOPIC:-artillery.metrics}
+    volumes:
+      - appdata:/app/data
+      - reports:/app/data/reports
     depends_on:
       db:
         condition: service_healthy
+      ingest:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:${PORT:-3000}/readyz >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    cpuset: ${DASHBOARD_CPUSET:-}
+    mem_limit: ${DASHBOARD_MEM_LIMIT:-1g}
+    cpus: ${DASHBOARD_CPUS:-1.0}
+    deploy:
+      resources:
+        limits:
+          cpus: "${DASHBOARD_CPUS:-1.0}"
+          memory: ${DASHBOARD_MEM_LIMIT:-1g}
+        reservations:
+          cpus: "${DASHBOARD_CPU_RESERVATION:-0.25}"
+          memory: ${DASHBOARD_MEM_RESERVATION:-256m}
+
+  ingest:
+    build: .
+    ports:
+      - "${INGEST_PORT:-3002}:${INGEST_PORT:-3002}"
+    environment:
+      - SERVICE_ROLE=ingest
+      - PORT=${INGEST_PORT:-3002}
+      - INGEST_PORT=${INGEST_PORT:-3002}
+      - DATABASE_URL=${DATABASE_URL:-postgres://postgres:postgres@db:5432/artillery}
+      - ARTILLERY_REPORT_DIR=/app/data/reports
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - API_TOKEN=${API_TOKEN:-}
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}
+      - RING_CAPACITY=${RING_CAPACITY:-16384}
+      - FLUSH_BATCH_SIZE=${FLUSH_BATCH_SIZE:-5000}
+      - FLUSH_INTERVAL_MS=${FLUSH_INTERVAL_MS:-500}
+      - FLUSH_SHARDS=${FLUSH_SHARDS:-4}
+      - INGEST_SLOWDOWN_THRESHOLD=${INGEST_SLOWDOWN_THRESHOLD:-0.8}
+      # - KAFKA_BROKERS=${KAFKA_BROKERS:-}
+      # - KAFKA_TOPIC=${KAFKA_TOPIC:-artillery.metrics}
+    volumes:
+      - appdata:/app/data
+      - reports:/app/data/reports
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:${INGEST_PORT:-3002}/readyz >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    cpuset: ${INGEST_CPUSET:-}
+    mem_limit: ${INGEST_MEM_LIMIT:-1g}
+    cpus: ${INGEST_CPUS:-1.0}
+    deploy:
+      resources:
+        limits:
+          cpus: "${INGEST_CPUS:-1.0}"
+          memory: ${INGEST_MEM_LIMIT:-1g}
+        reservations:
+          cpus: "${INGEST_CPU_RESERVATION:-0.25}"
+          memory: ${INGEST_MEM_RESERVATION:-256m}
 
   db:
     image: timescale/timescaledb:latest-pg16
     environment:
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=postgres
-      - POSTGRES_DB=artillery
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
+      - POSTGRES_DB=${POSTGRES_DB:-artillery}
     ports:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./src/db/schema.sql:/docker-entrypoint-initdb.d/schema.sql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-artillery}"]
       interval: 5s
       timeout: 3s
       retries: 5
+    restart: unless-stopped
 
 volumes:
   pgdata:
+  appdata:
+  reports:

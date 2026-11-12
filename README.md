@@ -379,11 +379,11 @@ curl -s "http://localhost:3000/api/runs/run-123/raw?from=2026-01-01T00:00:00Z"
 | `GET` | `/api/runs/:id/live` | Server-Sent Events stream of raw points plus a terminal run event. |
 | `POST` | `/api/runs` | Start an Artillery run with `{ "script_path": "...", "id"?, "config"?, "extra_args"? }`. |
 | `DELETE` | `/api/runs/:id` | Kill a running run (marked `failed` with `failure_reason`), or delete a finished run and its metrics. |
-| `GET` | `/api/health` | Detailed health/readiness payload (uptime, DB check, flusher stats). Public. Returns `503` when the database is unreachable. |
-| `GET` | `/api/health/live` | Cheap liveness probe (no DB). Public. |
-| `GET` | `/api/health/ready` | Readiness probe (DB + flusher stats). Public. |
-| `GET` | `/livez` | Cheap liveness probe alias (no DB). Public. |
-| `GET` | `/readyz` | Readiness probe alias. Public. |
+| `GET` | `/api/health` | Static liveness response (no DB). Public. |
+| `GET` | `/api/health/live` | Static liveness probe alias (no DB). Public. |
+| `GET` | `/api/health/ready` | Readiness probe (DB + flusher telemetry). Public. Returns `503` when degraded/unready. |
+| `GET` | `/livez` | Static liveness probe alias (no DB). Public. |
+| `GET` | `/readyz` | Readiness probe alias (DB + flusher telemetry). Public. Returns `503` when degraded/unready. |
 | `GET` | `/api/overview?days=<1\|7\|30>&frequency=<day\|week>` | Overview dashboard aggregates: SLO status, per-run p95/error-rate trend, run frequency, worst endpoints, regression alerts, and recent runs. Returns `meta` with the applied window/bucket. |
 | `WS` | `/ws` | JSON metric ingestion. |
 
@@ -465,7 +465,7 @@ All ingestion paths call the singleton `MetricsFlusher`, which pushes points int
 
 ### Query path
 
-The REST layer reads from the raw `metrics` hypertable for `/raw` and from the `metrics_10s`, `metrics_1m`, `metrics_1h`, or `metrics_1d` continuous aggregate for `/metrics`. The detailed health/readiness endpoints report flusher telemetry (`buffered`, `dropped`, `flushed`, `dbWriteErrors`, `lastFlushAt`, `lastFlushDurationMs`, `maxBuffered`). Use `/livez` or `/api/health/live` for cheap liveness probes that must not touch the database.
+The REST layer reads from the raw `metrics` hypertable for `/raw` and from the `metrics_10s`, `metrics_1m`, `metrics_1h`, or `metrics_1d` continuous aggregate for `/metrics`. `/api/health` and `/livez` are static liveness probes (no DB). `/readyz` and `/api/health/ready` perform DB checks and expose flusher telemetry (`buffered`, `dropped`, `flushed`, `dbWriteErrors`, `lastFlushAt`, `lastFlushDurationMs`, `flushLatencyMs`, `ringDepth`, `slowDownSent`, `shards`). WS ingest may emit `{"type":"slow_down","target_hz":...}` control frames under backpressure.
 
 ## Data model
 
@@ -484,7 +484,7 @@ The table is a TimescaleDB hypertable with one-day chunks and an index on `(run_
 
 ### `runs` (metadata)
 
-Stores `id`, `started_at`, `duration_ms`, `total_requests`, `p50`, `p95`, `p99`, `error_rate`, `status`, `config_yaml`, and `json_path`. `status` is `running`, `completed`, or `failed`; `json_path` points at the persisted report for orchestrated runs.
+Stores `id`, `started_at`, `duration_ms`, `total_requests`, `p50`, `p95`, `p99`, `error_rate`, `status`, `failure_reason`, `partial_data`, `dropped_points`, `config_yaml`, and `json_path`. `status` is `running`, `completed`, or `failed`; `failure_reason` records why a run ended abnormally when known; `partial_data`/`dropped_points` indicate ingestion loss (e.g. ring overflow or terminal flush failures); `json_path` points at the persisted report for orchestrated runs.
 
 ### Continuous aggregates
 
@@ -515,7 +515,17 @@ ORDER BY bucket;
 
 - Under high connection churn, tune HTTP keep-alive/timeouts (`SERVER_*` env vars) and ensure the load generator reuses connections (keep-alive/pooling). Defaults favor longer-lived keep-alive to reduce TIME_WAIT/accept pressure.
 - **Self-load caveat:** running Artillery against Broadside on the same host/Docker Desktop loopback while ingesting metrics back into Broadside contends for the same ephemeral ports, sockets, CPU, and DB budget. Connection-level failures (e.g. `ECONNRESET`/`EAGAIN`/`EPIPE`) at peak can indicate loopback/socket exhaustion rather than application errors; validate with a clean baseline profile (keep-alive on, minimal/no ingest/DB path) before attributing failures to request handling.
-- For ingest isolation, set `INGEST_PORT` to serve `/ws` on a dedicated listener (separate accept/socket budget from REST/control/SSE). Full process/container separation is recommended for sustained high-volume ingest.
+- For ingest isolation, set `INGEST_PORT` to serve `/ws` on a dedicated listener, or run the dedicated `ingest` compose service/container (`SERVICE_ROLE=ingest`) for stronger separation. See [TUNING.md](TUNING.md) for sysctl guidance, Artillery keep-alive/pool examples, and interpretation tips.
+
+## Horizontal scaling
+
+Broadside can scale horizontally as **stateless replicas behind a shared TimescaleDB** (the database is the system of record and aggregation/query engine).
+
+- **API/control-plane replicas:** run multiple `dashboard`/`api` instances (`SERVICE_ROLE=api`) behind a load balancer. They serve REST/SSE/UI and read from TimescaleDB. Use sticky routing only if a specific client path requires it; SSE/live polling is DB-backed.
+- **Ingest replicas:** run one or more dedicated ingest instances (`SERVICE_ROLE=ingest`, e.g. compose `ingest` service or separate deployments) to accept `/ws` (and gRPC/Kafka, depending on deployment wiring) and flush into TimescaleDB. Point producers at `INGEST_URL` / the ingest service endpoint.
+- **Shared state:** TimescaleDB stores metrics/runs and continuous aggregates; replicas do not share in-memory ring buffers. A replica restart can lose only its in-flight buffered points (best-effort shutdown drain is attempted). Use `/readyz` healthchecks, `restart: unless-stopped`, and persistent volumes for `data/` and `data/reports`.
+- **Compose/service wiring:** `docker-compose.yml` includes a dedicated `ingest` service with healthchecks (`/readyz`), `depends_on`, restart policy, and configurable CPU/memory/cpuset limits (`DASHBOARD_*`, `INGEST_*`, `deploy.resources`). Tune log multiplexing and startup ordering for your environment.
+- **Limits:** per-process in-memory flusher state is not globally coordinated; scaling ingest increases write concurrency to TimescaleDB, so size DB resources, flush settings, and shard counts accordingly. For very high scale, add external buffering/queueing and idempotent/durable ingestion semantics.
 
 ## Development
 

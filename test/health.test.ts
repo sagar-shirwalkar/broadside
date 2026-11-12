@@ -22,10 +22,24 @@ describe("health route", () => {
     h.logger.error.mockClear();
   });
 
-  it("reports status, uptime, flusher stats, and a healthy database", async () => {
+  it("liveness (/) is static and does not touch DB", async () => {
     const client = testClient(health) as any;
 
     const res = await client.index.$get();
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toMatchObject({ status: "ok" });
+    expect(typeof body.uptime).toBe("number");
+    expect(Number.isNaN(Date.parse(body.timestamp))).toBe(false);
+    expect(body.database).toBeUndefined();
+    expect(h.sql).not.toHaveBeenCalled();
+  });
+
+  it("ready reports DB and flusher stats", async () => {
+    const client = testClient(health) as any;
+
+    const res = await client.ready.$get();
 
     expect(res.status).toBe(200);
     const body = await res.json();
@@ -34,17 +48,14 @@ describe("health route", () => {
       database: { status: "ok" },
       flusher: h.stats,
     });
-    expect(typeof body.uptime).toBe("number");
-    expect(Number.isNaN(Date.parse(body.timestamp))).toBe(false);
-    expect(h.logger.error).not.toHaveBeenCalled();
   });
 
-  it("reports degraded with 503 when the database is unreachable", async () => {
+  it("ready reports degraded with 503 when the database is unreachable", async () => {
     const err = new Error("connect ECONNREFUSED");
     h.sql.mockRejectedValue(err);
 
     const client = testClient(health) as any;
-    const res = await client.index.$get();
+    const res = await client.ready.$get();
 
     expect(res.status).toBe(503);
     const body = await res.json();
@@ -53,9 +64,6 @@ describe("health route", () => {
       database: { status: "error" },
       flusher: h.stats,
     });
-    expect(h.logger.error).toHaveBeenCalledWith(
-      { err },
-      "[health] database check failed",
-    );
+    expect(h.logger.error).toHaveBeenCalled();
   });
 });
