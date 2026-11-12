@@ -1,4 +1,4 @@
-import type { Route } from "../router.js";
+import type { Route } from "../lib/router.js";
 import type { RunStatus } from "../types.js";
 import type { Theme } from "../theme.js";
 

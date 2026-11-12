@@ -19,9 +19,9 @@ const h = vi.hoisted(() => {
   };
 });
 
-vi.mock("../src/db/client.js", () => ({ sql: h.sqlMock }));
-vi.mock("../src/logger.js", () => ({ logger: h.logger }));
-vi.mock("../src/lib/artillery.js", () => ({
+vi.mock("../../db/client.js", () => ({ sql: h.sqlMock }));
+vi.mock("../../logger.js", () => ({ logger: h.logger }));
+vi.mock("../../lib/artillery.js", () => ({
   spawnArtillery: h.spawnArtillery,
   killRun: h.killRun,
   isRunActive: h.isRunActive,
@@ -29,7 +29,7 @@ vi.mock("../src/lib/artillery.js", () => ({
 }));
 
 import { testClient } from "hono/testing";
-import runs from "../src/server/routes/runs.js";
+import runs from "./runs.js";
 
 const client = testClient(runs) as any;
 

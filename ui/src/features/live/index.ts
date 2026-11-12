@@ -11,8 +11,8 @@ import {
   vusersIo,
 } from "../../derived-series.js";
 import type { ChartSeries, RawRow, RunRow } from "../../types.js";
-import { formatDuration, formatMs, formatNumber, formatPercent } from "../../format.js";
-import { navigate } from "../../router.js";
+import { formatDuration, formatMs, formatNumber, formatPercent } from "../../lib/format.js";
+import { navigate } from "../../lib/router.js";
 import "../../components/chart-panel.js";
 import "../../components/endpoint-select.js";
 import "../../components/skeleton.js";

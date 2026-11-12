@@ -1,6 +1,6 @@
 import { LitElement, css } from "lit";
 import { customElement } from "lit/decorators.js";
-import { parseHash } from "../router.js";
+import { parseHash } from "../lib/router.js";
 import { RUN_STATUS_EVENT, UNAUTHORIZED_EVENT } from "../services/api.js";
 import type { RunStatus } from "../types.js";
 import { applyTheme, currentTheme, toggleTheme } from "../theme.js";

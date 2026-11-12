@@ -32,7 +32,7 @@ vi.mock("@platformatic/kafka", () => ({
   stringDeserializer: h.stringDeserializer,
   jsonDeserializer: h.jsonDeserializer,
 }));
-vi.mock("../src/config.js", () => ({
+vi.mock("../config.js", () => ({
   config: {
     kafka: {
       get enabled() {
@@ -43,12 +43,12 @@ vi.mock("../src/config.js", () => ({
     },
   },
 }));
-vi.mock("../src/lib/flusher.js", () => ({
+vi.mock("../lib/flusher.js", () => ({
   metricsFlusher: { ingest: h.ingest },
 }));
-vi.mock("../src/logger.js", () => ({ logger: h.logger }));
+vi.mock("../logger.js", () => ({ logger: h.logger }));
 
-let kafka: typeof import("../src/server/kafka.js");
+let kafka: typeof import("./kafka.js");
 
 describe("Kafka consumer", () => {
   beforeEach(async () => {
@@ -59,7 +59,7 @@ describe("Kafka consumer", () => {
     h.Consumer.mockClear();
     h.ingest.mockClear();
     h.jsonDeserializer.mockClear();
-    kafka = await import("../src/server/kafka.js");
+    kafka = await import("./kafka.js");
   });
 
   it("does nothing when Kafka is disabled", async () => {

@@ -36,10 +36,17 @@ function registerWsIngest(app: Hono<AppEnv>): void {
           const capped = points.slice(0, config.ingest.maxBatchPoints);
           if (capped.length > 0) {
             metricsFlusher.ingest(capped);
-            for (const p of capped) ingestTracker.touch(p.runId);
+            for (const runId of new Set(capped.map((p) => p.runId))) {
+              ingestTracker.touch(runId);
+            }
             if (metricsFlusher.shouldSlowDown()) {
               try {
-                ws.send(JSON.stringify({ type: "slow_down", target_hz: 1 }));
+                ws.send(
+                  JSON.stringify({
+                    type: "slow_down",
+                    target_hz: metricsFlusher.getSlowDownTargetHz(),
+                  }),
+                );
                 metricsFlusher.noteSlowDownSent();
               } catch {
                 // best-effort control frame

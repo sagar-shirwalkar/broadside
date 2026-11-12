@@ -1,7 +1,7 @@
 import { LitElement, css, html } from "lit";
 import { customElement, state } from "lit/decorators.js";
 import type { HealthResponse } from "../../types.js";
-import { formatDuration } from "../../format.js";
+import { formatDuration } from "../../lib/format.js";
 
 const POLL_MS = 30_000;
 

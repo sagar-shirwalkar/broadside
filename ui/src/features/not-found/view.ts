@@ -1,5 +1,5 @@
 import { html, type TemplateResult } from "lit";
-import { navigate } from "../../router.js";
+import { navigate } from "../../lib/router.js";
 import type { State } from "./types.js";
 
 export function view(state: State): TemplateResult {

@@ -1,5 +1,5 @@
 import type { Cmd } from "../core/types.js";
-import { parseHash, type Route } from "../router.js";
+import { parseHash, type Route } from "../lib/router.js";
 import { RUN_STATUS_EVENT, UNAUTHORIZED_EVENT } from "../services/api.js";
 import type { RunStatus } from "../types.js";
 import { currentTheme, toggleTheme } from "../theme.js";

@@ -6,7 +6,7 @@ const h = vi.hoisted(() => ({
 }));
 const { sqlMock } = h;
 
-vi.mock("../src/config.js", () => ({
+vi.mock("../config.js", () => ({
   config: {
     ring: {
       capacity: 4,
@@ -17,11 +17,11 @@ vi.mock("../src/config.js", () => ({
     },
   },
 }));
-vi.mock("../src/db/client.js", () => ({ sql: h.sqlMock }));
-vi.mock("../src/logger.js", () => ({ logger: h.logger }));
+vi.mock("../db/client.js", () => ({ sql: h.sqlMock }));
+vi.mock("../logger.js", () => ({ logger: h.logger }));
 
-import { MetricsFlusher } from "../src/lib/flusher.js";
-import type { MetricPoint } from "../src/types.js";
+import { MetricsFlusher } from "./flusher.js";
+import type { MetricPoint } from "../types.js";
 
 function point(overrides: Partial<MetricPoint> = {}): MetricPoint {
   return {
@@ -200,5 +200,15 @@ describe("MetricsFlusher", () => {
     release([]);
     await vi.waitFor(() => expect(flusher.stats.flushed).toBe(4));
     expect(flusher.stats.buffered).toBe(0);
+  });
+
+  it("reports proportional slow-down target based on headroom", () => {
+    const flusher = new MetricsFlusher();
+    expect(flusher.getSlowDownTargetHz()).toBe(100);
+
+    // batchSize is 2 in this test config; ingest below threshold to avoid auto-flush.
+    flusher.ingest([point({ runId: "a" })]); // 1/4 buffered
+    expect(flusher.shouldSlowDown()).toBe(false);
+    expect(flusher.getSlowDownTargetHz()).toBe(75);
   });
 });

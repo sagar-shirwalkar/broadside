@@ -6,10 +6,10 @@ const h = vi.hoisted(() => {
   return { sqlMock };
 });
 
-vi.mock("../src/db/client.js", () => ({ sql: h.sqlMock }));
+vi.mock("../../db/client.js", () => ({ sql: h.sqlMock }));
 
 import { testClient } from "hono/testing";
-import overview from "../src/server/routes/overview.js";
+import overview from "./overview.js";
 
 const client = testClient(overview) as any;
 

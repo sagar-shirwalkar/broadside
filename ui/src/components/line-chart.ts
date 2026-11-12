@@ -1,7 +1,7 @@
 import { LitElement, css, html } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import type { ChartSeries, PhaseAnnotation } from "../types.js";
-import { formatClock, formatElapsed, formatTick } from "../format.js";
+import { formatClock, formatElapsed, formatTick } from "../lib/format.js";
 import {
   areaPathFrom,
   escapeAnnotationLabel,
@@ -11,7 +11,7 @@ import {
   niceTicks,
   stepPathFrom,
   timeTicks,
-} from "../chart-svg.js";
+} from "../lib/chart-svg.js";
 
 export type YFormat = "ms" | "req/s" | "%" | "count";
 export type ChartKind = "line" | "step" | "bars";

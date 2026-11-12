@@ -1,8 +1,8 @@
 import { html, type TemplateResult } from "lit";
 import type { Cmd } from "../../core/types.js";
 import type { RunRow, RunStatus } from "../../types.js";
-import { formatDuration, formatMs, formatNumber, formatPercent, latencyClass, relativeTime } from "../../format.js";
-import { navigate } from "../../router.js";
+import { formatDuration, formatMs, formatNumber, formatPercent, latencyClass, relativeTime } from "../../lib/format.js";
+import { navigate } from "../../lib/router.js";
 import "../../components/skeleton.js";
 import "../../components/confirm-dialog.js";
 import "../../components/status-dot.js";

@@ -2,12 +2,12 @@ import { describe, expect, it, vi } from "vitest";
 
 const h = vi.hoisted(() => ({ ingest: vi.fn() }));
 
-vi.mock("../src/lib/flusher.js", () => ({
+vi.mock("../lib/flusher.js", () => ({
   metricsFlusher: { ingest: h.ingest },
 }));
 
-import { Ingest } from "../src/gen/metrics/v1/ingest_pb.js";
-import { routes } from "../src/server/grpc.js";
+import { Ingest } from "../gen/metrics/v1/ingest_pb.js";
+import { routes } from "./grpc.js";
 
 interface ServiceImpl {
   streamMetrics: (

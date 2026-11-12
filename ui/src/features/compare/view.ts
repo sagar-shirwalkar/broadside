@@ -1,7 +1,7 @@
 import { html, type TemplateResult } from "lit";
 import type { Cmd } from "../../core/types.js";
 import type { ChartSeries, Granularity, MetricRow, RunRow } from "../../types.js";
-import { formatDuration, formatMs, formatNumber, formatPercent, latencyClass } from "../../format.js";
+import { formatDuration, formatMs, formatNumber, formatPercent, latencyClass } from "../../lib/format.js";
 import {
   activeVusers, cdfFromLatest, errorCount, histogramFromLatest, tailSpread, toBucket, vusersIo, type Bucket,
 } from "../../derived-series.js";

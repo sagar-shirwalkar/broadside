@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { normalizeBatch, normalizePoint } from "../src/lib/normalize.js";
+import { normalizeBatch, normalizePoint } from "./normalize.js";
 
 describe("normalizePoint", () => {
   it("normalizes snake_case payloads", () => {

@@ -401,7 +401,9 @@ runs.get("/:id/live", async (c) => {
     while (!stream.aborted) {
       const rows = endpoint !== undefined
         ? await sql`
-            SELECT time, endpoint, rps, p50, p95, p99, error_rate
+            SELECT time, endpoint, rps, p50, p95, p99, error_rate,
+                   vusers_started, vusers_stopped, vusers_created, vusers_completed,
+                   error_count, hist_min, hist_max, hist_p75, hist_p90, hist_p999
             FROM metrics
             WHERE run_id = ${id}
               AND (time, COALESCE(endpoint, '')) > (${cursorTime}::timestamptz, ${cursorEndpoint})
@@ -411,7 +413,9 @@ runs.get("/:id/live", async (c) => {
             LIMIT ${LIVE_PAGE_SIZE}
           `
         : await sql`
-            SELECT time, endpoint, rps, p50, p95, p99, error_rate
+            SELECT time, endpoint, rps, p50, p95, p99, error_rate,
+                   vusers_started, vusers_stopped, vusers_created, vusers_completed,
+                   error_count, hist_min, hist_max, hist_p75, hist_p90, hist_p999
             FROM metrics
             WHERE run_id = ${id}
               AND (time, COALESCE(endpoint, '')) > (${cursorTime}::timestamptz, ${cursorEndpoint})

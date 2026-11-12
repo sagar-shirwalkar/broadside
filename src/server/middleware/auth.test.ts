@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Hono } from "hono";
-import { createAuthMiddleware } from "../src/server/middleware/auth.js";
+import { createAuthMiddleware } from "./auth.js";
 
 function appWith(token: string) {
   const app = new Hono();

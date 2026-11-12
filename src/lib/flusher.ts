@@ -194,6 +194,16 @@ export class MetricsFlusher {
     return this.totalBuffered() / cap >= config.ring.slowDownThreshold;
   }
 
+  /** Suggested producer target Hz when backpressured (proportional to headroom). */
+  getSlowDownTargetHz(): number {
+    const cap = this.totalCapacity();
+    if (cap <= 0) return 1;
+    const utilization = this.totalBuffered() / cap;
+    const headroom = Math.max(0, 1 - utilization);
+    // Scale target with remaining headroom: 1 Hz when nearly full, higher when just over threshold.
+    return Math.max(1, Math.floor(headroom * 100));
+  }
+
   noteSlowDownSent(): void {
     this.slowDownSent += 1;
   }

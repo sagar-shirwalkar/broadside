@@ -1,6 +1,6 @@
 import { html, type TemplateResult } from "lit";
 import { keyed } from "lit/directives/keyed.js";
-import { navigate } from "../router.js";
+import { navigate } from "../lib/router.js";
 import type { AppAction, AppState } from "./types.js";
 import "../components/health-badge.js";
 import "../components/trigger-dialog.js";

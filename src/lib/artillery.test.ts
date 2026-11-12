@@ -30,12 +30,12 @@ vi.mock("node:fs/promises", () => ({
   mkdir: h.mkdir,
   writeFile: h.writeFile,
 }));
-vi.mock("../src/db/client.js", () => ({ sql: h.sqlMock }));
-vi.mock("../src/logger.js", () => ({ logger: h.logger }));
-vi.mock("../src/config.js", () => ({
+vi.mock("../db/client.js", () => ({ sql: h.sqlMock }));
+vi.mock("../logger.js", () => ({ logger: h.logger }));
+vi.mock("../config.js", () => ({
   config: { artillery: { reportDir: "/tmp/reports" } },
 }));
-vi.mock("../src/lib/flusher.js", () => ({
+vi.mock("./flusher.js", () => ({
   metricsFlusher: { ingest: h.ingest },
 }));
 
@@ -46,7 +46,7 @@ import {
   processReport,
   spawnArtillery,
   type ArtilleryReport,
-} from "../src/lib/artillery.js";
+} from "./artillery.js";
 
 interface FakeProc {
   stderr: { on: ReturnType<typeof vi.fn> };

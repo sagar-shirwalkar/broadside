@@ -1,5 +1,5 @@
 import { html, type TemplateResult } from "lit";
-import { navigate } from "../../router.js";
+import { navigate } from "../../lib/router.js";
 import type { ChartPoint, ChartSeries } from "../../types.js";
 import type { Cmd } from "../../core/types.js";
 import "../../components/line-chart.js";
