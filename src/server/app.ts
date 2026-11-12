@@ -10,6 +10,7 @@ import { logger, type AppEnv } from "../logger.js";
 import { config } from "../config.js";
 import { normalizeBatch } from "../lib/normalize.js";
 import { metricsFlusher } from "../lib/flusher.js";
+import { ingestTracker } from "../lib/ingest-tracker.js";
 import { createAuthMiddleware } from "./middleware/auth.js";
 import runs from "./routes/runs.js";
 import health from "./routes/health.js";
@@ -35,6 +36,7 @@ function registerWsIngest(app: Hono<AppEnv>): void {
           const capped = points.slice(0, config.ingest.maxBatchPoints);
           if (capped.length > 0) {
             metricsFlusher.ingest(capped);
+            for (const p of capped) ingestTracker.touch(p.runId);
             if (metricsFlusher.shouldSlowDown()) {
               try {
                 ws.send(JSON.stringify({ type: "slow_down", target_hz: 1 }));

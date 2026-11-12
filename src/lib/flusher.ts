@@ -39,7 +39,7 @@ export class MetricsFlusher {
   private lossTimer: NodeJS.Timeout | null = null;
   private slowDownSent = 0;
   private depthSamples: Array<{ ts: number; depth: number }> = [];
-  private droppedByRun = new Map<string, number>();
+  private droppedByRun = new Map<string, { dropped: number; reason: "ring_overflow" | "flush_failed" }>();
 
   constructor() {
     const shardCount = Math.max(1, Number(config.ring.shards ?? 1) || 1);
@@ -127,7 +127,11 @@ export class MetricsFlusher {
     }
   }
 
-  private recordDropped(batch: MetricPoint[], count: number): void {
+  private recordDropped(
+    batch: MetricPoint[],
+    count: number,
+    reason: "ring_overflow" | "flush_failed" = "ring_overflow",
+  ): void {
     // Attribute drops approximately by points present in this shard batch.
     // Best-effort accounting for observability (not billing-grade).
     if (count <= 0) return;
@@ -139,16 +143,24 @@ export class MetricsFlusher {
       const share = Math.max(0, Math.round((count * n) / total));
       if (share <= 0) continue;
       remaining -= share;
-      this.droppedByRun.set(runId, (this.droppedByRun.get(runId) ?? 0) + share);
+      const prev = this.droppedByRun.get(runId);
+      this.droppedByRun.set(runId, {
+        dropped: (prev?.dropped ?? 0) + share,
+        reason: prev?.reason === "flush_failed" ? "flush_failed" : reason,
+      });
     }
     if (remaining > 0) {
       const fallback = batch[0]?.runId ?? "unknown";
-      this.droppedByRun.set(fallback, (this.droppedByRun.get(fallback) ?? 0) + remaining);
+      const prev = this.droppedByRun.get(fallback);
+      this.droppedByRun.set(fallback, {
+        dropped: (prev?.dropped ?? 0) + remaining,
+        reason: prev?.reason === "flush_failed" ? "flush_failed" : reason,
+      });
     }
   }
 
   /** Best-effort snapshot and reset of per-run drop counters. */
-  drainDroppedByRun(): Map<string, number> {
+  drainDroppedByRun(): Map<string, { dropped: number; reason: "ring_overflow" | "flush_failed" }> {
     const snapshot = new Map(this.droppedByRun);
     this.droppedByRun.clear();
     return snapshot;
@@ -157,19 +169,19 @@ export class MetricsFlusher {
   private async applyRunLossAccounting(): Promise<void> {
     const drops = this.drainDroppedByRun();
     if (drops.size === 0) return;
-    for (const [runId, dropped] of drops) {
-      if (!runId || runId === "unknown" || dropped <= 0) continue;
+    for (const [runId, info] of drops) {
+      if (!runId || runId === "unknown" || info.dropped <= 0) continue;
       try {
         await sql`
           UPDATE runs
           SET partial_data = TRUE,
-              dropped_points = COALESCE(dropped_points, 0) + ${dropped},
-              failure_reason = COALESCE(failure_reason, ${"ring_overflow"})
+              dropped_points = COALESCE(dropped_points, 0) + ${info.dropped},
+              failure_reason = COALESCE(failure_reason, ${info.reason})
           WHERE id = ${runId}
         `;
       } catch (err) {
         logger.error(
-          { err, runId, dropped },
+          { err, runId, dropped: info.dropped, reason: info.reason },
           "[flusher] failed to persist run loss accounting",
         );
       }
@@ -300,8 +312,7 @@ export class MetricsFlusher {
               { shard: index, dropped: batch.length },
               "[flusher] dropping batch during shutdown after write failure",
             );
-            // best-effort accounting as lost points for affected runs
-            this.recordDropped(batch, batch.length);
+            this.recordDropped(batch, batch.length, "flush_failed");
           }
           break;
         }

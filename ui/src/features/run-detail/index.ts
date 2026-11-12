@@ -529,6 +529,15 @@ export class RunDetail extends LitElement {
           ></broadside-select>
         </div>
 
+        ${run.failure_reason || run.partial_data
+          ? html`<div class="run-note ${run.status === "failed" || run.partial_data ? "warn" : ""}">
+              ${run.failure_reason ? html`<span><strong>failure_reason:</strong> ${run.failure_reason}</span>` : ""}
+              ${run.partial_data
+                ? html`<span><strong>partial_data:</strong> yes${run.dropped_points ? ` (dropped ${run.dropped_points})` : ""}</span>`
+                : ""}
+            </div>`
+          : ""}
+
         <div class="grid">
           <broadside-chart-panel
             title="throughput"
@@ -801,6 +810,20 @@ export class RunDetail extends LitElement {
     .select:focus {
       border-color: var(--amber-dim);
     }
+    .run-note {
+      display: flex;
+      gap: var(--s-4);
+      flex-wrap: wrap;
+      font-family: var(--font-mono);
+      font-size: var(--step--1);
+      color: var(--text-dim);
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-left: 4px solid var(--warn);
+      border-radius: var(--radius);
+      padding: var(--s-3);
+    }
+    .run-note.warn { color: var(--warn); }
     .grid {
       display: grid;
       grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);

@@ -46,6 +46,15 @@ export const config = {
       process.env.ARTILLERY_MAX_CONCURRENT ?? "4",
       10,
     ),
+    /** Best-effort V8 heap limits for child processes (MB). 0 = unset. */
+    childMaxOldGenerationMb: parseInt(
+      process.env.ARTILLERY_CHILD_MAX_OLD_MB ?? "0",
+      10,
+    ),
+    childMaxYoungGenerationMb: parseInt(
+      process.env.ARTILLERY_CHILD_MAX_YOUNG_MB ?? "0",
+      10,
+    ),
   },
 
   ingest: {

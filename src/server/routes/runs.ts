@@ -101,7 +101,7 @@ runs.get("/", async (c) => {
   const rows = decoded
     ? await sql`
         SELECT id, started_at, duration_ms, total_requests,
-               p50, p95, p99, error_rate, status, failure_reason
+               p50, p95, p99, error_rate, status, failure_reason, partial_data, dropped_points
         FROM runs
         WHERE (started_at, id) < (${decoded.startedAt}::timestamptz, ${decoded.id})
         ORDER BY started_at DESC, id DESC
@@ -109,7 +109,7 @@ runs.get("/", async (c) => {
       `
     : await sql`
         SELECT id, started_at, duration_ms, total_requests,
-               p50, p95, p99, error_rate, status, failure_reason
+               p50, p95, p99, error_rate, status, failure_reason, partial_data, dropped_points
         FROM runs
         ORDER BY started_at DESC, id DESC
         LIMIT ${limit}
@@ -120,6 +120,7 @@ runs.get("/", async (c) => {
   const etag = `W/"runs-${Buffer.from(payload).length}-${rows.length}"`;
   c.header("Cache-Control", "private, max-age=5");
   c.header("ETag", etag);
+  c.header("X-Pagination-Modes", "offset,cursor");
   if (rows.length > 0) {
     const last = rows[rows.length - 1] as any;
     c.header("X-Next-Cursor", encodeCursor(last.started_at, String(last.id)));
@@ -161,7 +162,7 @@ runs.get("/compare", async (c) => {
 
   const runRows = await sql`
     SELECT id, started_at, duration_ms, total_requests,
-           p50, p95, p99, error_rate, status, failure_reason
+           p50, p95, p99, error_rate, status, failure_reason, partial_data, dropped_points
     FROM runs
     WHERE id = ANY(${ids})
     ORDER BY started_at DESC
@@ -430,7 +431,7 @@ runs.get("/:id/live", async (c) => {
       }
 
       const runRows = await sql`
-        SELECT status, duration_ms, total_requests, p50, p95, p99, error_rate, failure_reason
+        SELECT status, duration_ms, total_requests, p50, p95, p99, error_rate, failure_reason, partial_data, dropped_points
         FROM runs
         WHERE id = ${id}
       `;

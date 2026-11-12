@@ -112,10 +112,18 @@ export async function spawnArtillery(opts: SpawnOptions): Promise<void> {
 
   let proc: ChildProcess;
   try {
+    const resourceLimits: Record<string, number> = {};
+    if (config.artillery.childMaxOldGenerationMb > 0) {
+      resourceLimits.maxOldGenerationSizeMb = config.artillery.childMaxOldGenerationMb;
+    }
+    if (config.artillery.childMaxYoungGenerationMb > 0) {
+      resourceLimits.maxYoungGenerationSizeMb = config.artillery.childMaxYoungGenerationMb;
+    }
     proc = spawn("artillery", args, {
       stdio: ["ignore", "pipe", "pipe"],
       env: { ...process.env, ARTILLERY_DISABLE_TELEMETRY: "1" },
-    });
+      ...(Object.keys(resourceLimits).length > 0 ? { resourceLimits } : {}),
+    } as any);
   } catch (err) {
     await rm(tmpDir, { recursive: true, force: true }).catch(() => {});
     throw err;
@@ -621,7 +629,19 @@ export function killRun(runId: string): boolean {
   if (!active) return false;
 
   active.killed = true;
-  active.proc.kill("SIGTERM");
+  try {
+    active.proc.kill("SIGTERM");
+  } catch {
+    // ignore
+  }
+  // Escalate if the child does not exit promptly.
+  setTimeout(() => {
+    try {
+      if (!active.proc.killed) active.proc.kill("SIGKILL");
+    } catch {
+      // ignore
+    }
+  }, 5000).unref?.();
   activeRuns.delete(runId);
   return true;
 }

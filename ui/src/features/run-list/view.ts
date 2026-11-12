@@ -121,7 +121,12 @@ export function view(
                           tone=${statusTone(row.status)}
                           .pulse=${row.status === "running"}
                         ></broadside-status-dot>
-                        ${row.status}
+                        <span>${row.status}</span>
+                        ${row.partial_data
+                          ? html`<span class="warn" title=${`partial data${row.dropped_points ? ` (dropped ${row.dropped_points})` : ""}${row.failure_reason ? ` · ${row.failure_reason}` : ""}`}> ⚠</span>`
+                          : row.failure_reason
+                            ? html`<span class="muted" title=${row.failure_reason}> · ${row.failure_reason}</span>`
+                            : ""}
                       </td>
                       <td>
                         <button

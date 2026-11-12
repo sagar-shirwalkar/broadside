@@ -8,6 +8,7 @@ import { routes as connectRoutes } from "./server/grpc.js";
 import { startKafkaConsumer, stopKafkaConsumer } from "./server/kafka.js";
 import { metricsFlusher } from "./lib/flusher.js";
 import { killAllRuns } from "./lib/artillery.js";
+import { ingestTracker } from "./lib/ingest-tracker.js";
 import { config } from "./config.js";
 import { logger } from "./logger.js";
 
@@ -28,6 +29,7 @@ function tuneHttpServer(server: HttpServer): void {
 
 async function main() {
   metricsFlusher.start();
+  ingestTracker.start();
   await startKafkaConsumer();
 
   let server: HttpServer | null = null;
@@ -98,6 +100,7 @@ async function main() {
 
   const shutdown = async () => {
     logger.info("[server] shutting down");
+    ingestTracker.stop();
     await metricsFlusher.stop();
     await stopKafkaConsumer();
     const killed = killAllRuns();

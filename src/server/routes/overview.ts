@@ -296,7 +296,7 @@ async function overviewRegressions(): Promise<Record<string, unknown>[]> {
 async function overviewRecentRuns(): Promise<Record<string, unknown>[]> {
   const rows = (await sql`
     SELECT id, started_at, duration_ms, total_requests,
-           p50, p95, p99, error_rate, status, failure_reason
+           p50, p95, p99, error_rate, status, failure_reason, partial_data, dropped_points
     FROM runs
     ORDER BY started_at DESC
     LIMIT 5

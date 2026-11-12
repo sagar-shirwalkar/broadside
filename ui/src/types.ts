@@ -13,6 +13,8 @@ export interface RunRow {
   error_rate: number | null;
   status: RunStatus;
   failure_reason?: string | null;
+  partial_data?: boolean | null;
+  dropped_points?: number | string | null;
   config_yaml: string | null;
   json_path: string | null;
 }
