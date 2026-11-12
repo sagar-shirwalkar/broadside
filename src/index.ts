@@ -30,7 +30,9 @@ function tuneHttpServer(server: HttpServer): void {
 async function main() {
   metricsFlusher.start();
   ingestTracker.start();
-  await startKafkaConsumer();
+  if (config.serviceRole === "ingest" || config.serviceRole === "all") {
+    await startKafkaConsumer();
+  }
 
   let server: HttpServer | null = null;
   let wss: WebSocketServer | null = null;

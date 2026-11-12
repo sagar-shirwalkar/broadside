@@ -1,151 +1,133 @@
-# Architecture and Data Flow
+# Architecture
 
 ## Overview
 
-Broadside is a Node/TypeScript service that ingests Artillery-style metric points, buffers them, and writes them to TimescaleDB. It can also launch Artillery runs, parse their JSON reports into aggregate and per-endpoint points, and persist the reports. It exposes REST reads, a WebSocket ingest endpoint, Connect/gRPC ingest, and an optional Kafka consumer. The same process serves the Lit dashboard from `ui/dist`.
+Broadside ingests Artillery-style metric points, buffers them in memory, and writes them to TimescaleDB for querying and dashboard visualization. It supports metric ingestion over WebSocket (`/ws`), Connect/gRPC, and optional Kafka; can orchestrate Artillery runs via `POST /api/runs`; and serves a REST API plus the Lit dashboard UI.
 
-## Runtime topology
+The system is designed around a **validated ingestion boundary**, **buffered/batched writes**, and **TimescaleDB hypertables + continuous aggregates** for time-series storage and rollups.
 
-- `src/index.ts` starts the global `metricsFlusher`, the optional Kafka consumer, the Hono server on `PORT` (default `3000`) for REST + WebSocket, an optional dedicated ingest WebSocket listener on `INGEST_PORT`, and a Node HTTP/2 Connect server on `PORT + 1` (default `3001`). HTTP servers are tuned for keep-alive/timeouts/request limits via `SERVER_*` config.
-- Graceful shutdown awaits the flusher drain (best effort), stops Kafka, terminates active Artillery children, and closes servers/sockets.
-- `src/config.ts` is the only place that reads `process.env`. Ports, server tuning, ingest port, DB URL, Kafka settings, logging, report storage, SLO thresholds, and ring-buffer tuning live there.
-- Orchestrated runs require an `artillery` binary on `PATH`. Broadside does not bundle it.
-- `src/logger.ts` configures the shared Pino logger. `@hono/structured-logger` logs one entry per HTTP request and reports unhandled route errors.
+## Runtime topology and roles
 
-## Ingestion paths
+Broadside runs as a Node.js/TypeScript process with role-based behavior controlled by `SERVICE_ROLE` (`src/config.ts`, `src/index.ts`):
+
+| Role | Responsibilities | Typical deployment |
+| --- | --- | --- |
+| `all` | API/UI/control plane, `/ws` ingest, optional dedicated in-process ingest listener (`INGEST_PORT`), gRPC, and Kafka consumer (if enabled) | Local/dev single-process mode |
+| `api` | REST/UI/control plane and gRPC (no ingest listeners/consumer role) | Dashboard/API replica in split deployments |
+| `ingest` | Dedicated `/ws` ingest server, flusher/ingest pipeline, Kafka consumer (if enabled) | Isolated ingest replica/container |
+
+### Process startup (current behavior)
+
+- `src/index.ts` starts the global `metricsFlusher` and `ingestTracker` for process-local ingestion accounting, then starts role-appropriate servers.
+- **`api`/`all`:** starts Hono HTTP server for REST/UI/WS (and in `all`, can also start a separate in-process ingest listener when `INGEST_PORT` is set and differs from `PORT`), plus HTTP/2 Connect/gRPC server on `PORT + 1`.
+- **`ingest`:** starts a dedicated ingest HTTP server (WS + probes) on `INGEST_PORT` when set, otherwise `PORT`.
+- **Kafka:** consumer startup is gated to `ingest`/`all` roles (not `api`).
+- HTTP server tuning (`keepAliveTimeout`, `headersTimeout`, `requestTimeout`, `maxRequestsPerSocket`) is applied from `SERVER_*` config.
+
+Graceful shutdown stops ingest tracking, drains/stops the flusher (best effort), stops Kafka, terminates active Artillery children, and closes servers/sockets.
+
+## Deployment topology (split Compose stack)
+
+`docker-compose.yml` defines a split stack:
+
+- **`dashboard`** (`SERVICE_ROLE=api`): serves REST/UI and probes; depends on `db` and `ingest`.
+- **`ingest`** (`SERVICE_ROLE=ingest`): dedicated ingest container/service for `/ws` and buffered writes.
+- **`db`**: TimescaleDB.
+
+The dashboard readiness endpoint can **aggregate service health** (dashboard process + ingest probe + database) so UI/ops can determine whether all core services are live/responsive. Liveness remains static.
+
+## Ingestion paths and isolation
 
 | Path | Entry point | Input | Notes |
 | --- | --- | --- | --- |
-| WebSocket `/ws` | `src/server/app.ts` | JSON `{ run_id, points[] }` or a single point | Validated by `normalizeBatch` (`@zod/mini` schemas) before ingestion; malformed shapes raise `TypeError`, surfaced to the client as `"invalid message"`. |
-| Connect/gRPC | `src/server/grpc.ts` | `MetricBatch` protobuf messages | `StreamMetrics` is client-streaming; `PushMetrics` is unary. Proto types are mapped to domain `MetricPoint`s. |
-| Kafka | `src/server/kafka.ts` | JSON `MetricBatch` | Enabled only when `KAFKA_BROKERS` is set. Consumes `KAFKA_TOPIC` (default `artillery.metrics`). |
-| REST `POST /api/runs` | `src/server/routes/runs.ts` | `{ id?, script_path, config?, extra_args? }` | Inserts a `running` row and spawns `artillery run`. The report is parsed into `MetricPoint`s when Artillery exits, then fed to the flusher. |
+| WebSocket `/ws` | `src/server/app.ts` (`createApp` / `createIngestApp`) | JSON `{ run_id, points[] }` or single point | Normalized/validated by `normalizeBatch` (`@zod/mini`) at boundary; size/batch caps enforced; may emit `slow_down` control frames under pressure. |
+| Connect/gRPC | `src/server/grpc.ts` | Protobuf `MetricBatch` | `StreamMetrics` (client streaming) and `PushMetrics` (unary) map to domain `MetricPoint`s and ingest via flusher. |
+| Kafka (optional) | `src/server/kafka.ts` | JSON `MetricBatch` | Enabled only when `KAFKA_BROKERS` is set; consumed in `ingest`/`all` roles. |
+| Orchestrated run report | `src/server/routes/runs.ts` + `src/lib/artillery.ts` | Artillery JSON report | `POST /api/runs` spawns Artillery; report is parsed at process exit into points and ingested through the flusher. |
 
-## Run orchestration
+### Isolation tiers
 
-`src/lib/artillery.ts` owns the run lifecycle:
+1. **Same process, same port (`SERVICE_ROLE=all`, `INGEST_PORT=0`)**: simplest dev/default in-process mode.
+2. **Same process, dedicated ingest listener (`SERVICE_ROLE=all`, `INGEST_PORT != PORT`)**: separates `/ws` accept/socket handling from REST/control/SSE on another port.
+3. **Separate ingest process/container (`SERVICE_ROLE=ingest`, e.g. Compose `ingest` service)**: strongest isolation for event-loop, socket, and resource contention; dashboard/API runs separately.
 
-1. `POST /api/runs` validates that `script_path` is a non-empty string without `..`, rejects duplicate active ids with `409`, and inserts the run as `running`.
-2. `spawnArtillery` creates a temporary directory and runs `artillery run <script> --output <tmp>/report.json --quiet`, appending `extra_args`. It resolves once the child is spawned, not when the run finishes.
-3. Active runs are tracked in an in-memory map. `killRun` sends `SIGTERM` and marks the run terminal so the eventual `close` event does not process a partial report.
-4. On a clean exit, `processReport` reads the report, converts it to points, ingests them, copies the raw JSON to `ARTILLERY_REPORT_DIR`, and updates the `runs` row to `completed` (clearing `failure_reason`).
-5. A non-zero exit, spawn `error`, kill, or parsing/DB failure marks the run `failed` with a `failure_reason` (e.g. `artillery_exit_nonzero`, `spawn_error`, `killed`, `report_processing_failed`, `start_failed`) and logs details. The temporary directory is removed in all cases.
-
-`settled` and `killed` guards prevent double handling when `close` and `error` both fire. Routes await `spawnArtillery` only long enough to catch immediate spawn failures; they return `500` and mark the row failed if the process cannot start.
-
-### Report parsing
-
-Artillery's newer report shape uses `period` (epoch milliseconds) on intermediate buckets; older reports may use `timestamp`. Both are accepted, and `histograms`/`summaries` are treated as equivalent because Artillery currently populates them with the same summarized distributions.
-
-Per-endpoint data is read from keys written by the `metrics-by-endpoint` plugin:
-
-| Key | Meaning |
-| --- | --- |
-| `plugins.metrics-by-endpoint.response_time.<endpoint>` | Per-endpoint latency histogram. |
-| `plugins.metrics-by-endpoint.<endpoint>.codes.<status>` | Per-endpoint response-code counter. |
-| `plugins.metrics-by-endpoint.<endpoint>.errors.<code>` | Per-endpoint error counter. |
-
-Custom `metricsNamespace` values are inferred from response-time keys. Engine-level histograms such as `http.response_time.2xx` are not treated as endpoints. Per-endpoint RPS scales the bucket's measured `http.request_rate` by each endpoint's share of `http.requests`; if no rate is reported, the bucket duration is derived from adjacent `period` values or falls back to 10 seconds. Reports without plugin keys emit only the aggregate point (`endpoint: ""`).
-
-## Write path
+## Write path and flusher
 
 ```text
-ingest path → metricsFlusher.ingest()
-            → RingBuffer<MetricPoint>
-            → flush on size threshold or timer
-            → INSERT INTO metrics (postgres.js)
-            → TimescaleDB hypertable
+ingest path
+  -> normalize/validate (JSON boundaries)
+  -> metricsFlusher.ingest(points)
+  -> shard selection (FNV-1a hash-mod by run_id, FLUSH_SHARDS)
+  -> per-shard RingBuffer<MetricPoint>
+  -> flush on batch threshold or interval
+  -> batch INSERT INTO metrics (postgres.js)
+  -> TimescaleDB hypertable
 ```
 
-Rules:
+### Buffering, sharding, and backpressure
 
-- All ingestion paths must go through `metricsFlusher.ingest`; do not insert into `metrics` directly from a route or consumer.
-- `RingBuffer` capacity is rounded up to a power of two. When full, it drops the oldest item and increments `dropped` instead of blocking.
-- `MetricsFlusher` skips a flush if one is already running.
-- A failed insert re-queues the drained batch.
-- `MetricsFlusher` is a singleton exported from `src/lib/flusher.ts`.
+- **Singleton flusher:** all ingestion paths must call `metricsFlusher.ingest(...)` (no direct DB inserts from routes/consumers).
+- **Sharding:** `FLUSH_SHARDS` independent shards (default 4). Points are routed by `run_id` hash-mod so one hot/slow run is less likely to block others.
+- **Ring buffers:** fixed-capacity, drop-oldest buffers per shard. When full, oldest points are dropped and counted (ingest is not blocked on DB).
+- **Flush behavior:** periodic and threshold-triggered flushes; failed inserts may be requeued (or dropped with accounting during shutdown paths) to protect process stability.
+- **Backpressure signaling:** when ring depth exceeds `INGEST_SLOWDOWN_THRESHOLD`, WS ingest may emit a best-effort control frame `{"type":"slow_down","target_hz":1}` and increments telemetry (`slowDownSent`). Producers must opt in to honor it.
 
-## Request pipeline
+### Telemetry and loss accounting
 
-`src/server/app.ts` wires the HTTP surface in this order:
+Flusher/readiness telemetry includes buffered/dropped/flushed counts, DB write errors, flush latency and ring-depth summaries, slow-down counters, and shard count.
 
-1. `@hono/structured-logger` — one log line per request.
-2. `hono/cors` — answers `OPTIONS` preflights itself and tags responses with `Access-Control-Allow-Origin` for origins in `CORS_ORIGINS` (default: the Vite dev server). CORS runs first so preflights, which never carry credentials, are not rejected by auth.
-3. Bearer authentication (`src/server/middleware/auth.ts`) on `/api/runs/*` and `/ws`. An empty `API_TOKEN` disables it. The token is compared in constant time (`crypto.timingSafeEqual`); a missing or wrong token gets `401` with `WWW-Authenticate: Bearer`. WebSocket/SSE clients that cannot set headers may pass `?token=` instead.
-4. Routes: `/ws` (upgrade + ingest), `/api/runs`, `/api/health` (+ `/live`, `/ready`), `/api/overview`, plus `/livez` and `/readyz` aliases.
+Best-effort per-run loss accounting persists:
+- **`dropped_points`**: attributed dropped count increments
+- **`partial_data`**: set when loss/incomplete ingest is detected
+- **`failure_reason`**: preserved if already set, otherwise set (e.g. `ring_overflow`, `flush_failed`)
 
-`/api/health` remains a detailed, public probe (DB check + flusher telemetry) for UI/compatibility and returns `503` with `status: "degraded"` when the database is unreachable. `/api/health/live` and `/livez` are cheap liveness probes (no DB). `/api/health/ready` and `/readyz` expose readiness (DB + flusher). The gRPC port has no token check. If `INGEST_PORT` is configured, `/ws` is also served on a dedicated ingest listener to reduce control-plane contention.
+## Run lifecycle and orchestration
 
-After the API routes, `@hono/node-server`'s `serveStatic` serves the built dashboard from `config.ui.distDir` (`UI_DIST_DIR`, default `ui/dist`). A `notFound` handler serves `index.html` for non-API, non-asset GETs (SPA fallback for the hash-less and hash routes) and JSON 404s otherwise. The UI is a separate package built with Vite; its dev server proxies `/api` and `/ws` to this process.
+`src/lib/artillery.ts` manages orchestrated runs:
 
-## REST routes
+1. `POST /api/runs` validates input (`script_path`, traversal checks, config/body limits), rejects duplicate active IDs (`409`) and capacity exhaustion (`429`), inserts `runs` row as `running`.
+2. Spawns `artillery run <script> --output <tmp>/report.json --quiet` (plus args). Active runs are tracked in-memory.
+3. On clean exit, report is parsed into points, ingested via flusher, copied to `ARTILLERY_REPORT_DIR`, and run marked `completed` (clearing `failure_reason` as appropriate).
+4. Failures (spawn/start/report/DB/exit) mark run `failed` with a `failure_reason` (e.g. `start_failed`, `spawn_error`, `artillery_exit_nonzero`, `report_processing_failed`, `killed`). Temp artifacts are cleaned up.
+5. Kill/delete paths and settled guards prevent double-processing of close/error events.
 
-Run and metric endpoints (`src/server/routes/runs.ts`):
+### Report parsing highlights
 
-- `GET /api/runs` — paginated runs from `runs`, newest first. `limit` defaults to 100 (1–100); `offset` defaults to 0.
-- `GET /api/overview?days=<1|7|30>&frequency=<day|week>` — dashboard landing-page aggregates in one response: SLO status (p95 and error-rate met-rates over the last `SLO_WINDOW_RUNS` completed runs), per-run p95/error-rate trend from `metrics_1d` grouped by `run_id` over `?days` (default `30`), run frequency bucketed by `?frequency` over 30 days (default `day`), worst endpoints by average p95 (30 days, excluding the aggregate row), regression alerts (latest run's per-endpoint p95 vs. the rolling median of the previous runs, flagged above `SLO_REGRESSION_DELTA`), and the 5 most recent runs. The response includes `meta: { trendDays, frequencyInterval }`.
-- `GET /api/runs/compare` — metadata plus one metric series per run for overlay charts. Requires `ids` with 2–10 comma-separated ids, de-duplicated; returns `400` otherwise. Registered before `/:id` so the static path wins.
-- `GET /api/runs/:id` — one run or `404`.
-- `GET /api/runs/:id/endpoints` — distinct non-aggregate endpoints in a run with sample counts, for dashboard filter tabs.
-- `GET /api/runs/:id/metrics` — reads `metrics_10s`, `metrics_1m`, `metrics_1h`, or `metrics_1d`. `granularity` defaults to `1m`; `from`/`to` are optional time filters; `endpoint` filters to one endpoint (or the aggregate row when empty). The `10s` rollup exists so sub-minute smoke runs aggregate to more than one point.
-- `GET /api/runs/:id/raw` — reads the raw `metrics` hypertable, limited to 100,000 rows; accepts the same `from`/`to`/`endpoint` filters.
-- `GET /api/runs/:id/live` — Server-Sent Events stream (see below).
-- `POST /api/runs` — creates and starts a run (see [Run orchestration](#run-orchestration)).
-- `DELETE /api/runs/:id` — kills an active run, or deletes a finished run and its metrics. Unknown ids return `404`.
+- Accepts both `period` and `timestamp` bucket keys and compatible histogram/summary shapes across Artillery versions.
+- Emits aggregate (`endpoint: ""`) and per-endpoint points when `metrics-by-endpoint` data is present.
+- Per-endpoint RPS is derived from bucket request share and measured request rate; endpoint error rates are request-based, aggregate error rate is VU-based.
 
-`src/server/routes/health.ts` exposes `GET /api/health` with uptime, a `SELECT 1` database check (`200`/`503`), and flusher stats (`buffered`, `dropped`, `flushed`). It is unauthenticated by design.
+## Ingest stall detection (`ingest_disconnected`)
 
-Only `10s`, `1m`, `1h`, and `1d` are valid granularities. The view name is selected with `sql.identifier`, so do not pass unvalidated user input into it. Run ids for `/compare` are bound as values (`id = ANY(${ids})` via `sql` with an array), never interpolated into the query text.
+`src/lib/ingest-tracker.ts` tracks last-seen timestamps for runs receiving WS-ingested points. If a tracked running run stalls beyond `INGEST_STALL_TIMEOUT_MS`, it is marked **failed** with `failure_reason = "ingest_disconnected"` and `partial_data = true` (best-effort heuristic). Runs without WS ingest activity are not falsely flagged solely for lacking heartbeats.
 
-### Live stream
+## Query/read path
 
-`GET /api/runs/:id/live` uses Hono's `streamSSE` and tails the raw hypertable for one run:
+- **Raw points:** `/api/runs/:id/raw` reads from the `metrics` hypertable (bounded).
+- **Aggregated metrics:** `/api/runs/:id/metrics` and compare flows read from continuous aggregates `metrics_10s|1m|1h|1d` (allow-listed; selected via `sql.identifier`).
+- **Live stream:** `/api/runs/:id/live` tails raw `metrics` via SSE with keyset pagination over `(time, COALESCE(endpoint, ''))` to deliver rows sharing timestamps; emits `metric` events and a terminal `run` event.
+- **Overview:** `/api/overview` computes SLO/trend/frequency/worst/regression/recent-run aggregates from `runs` and rollups.
 
-- It polls with keyset pagination over `(time, COALESCE(endpoint, ''))`, so rows sharing a timestamp (aggregate + every endpoint in one Artillery bucket) are all delivered in order instead of being skipped.
-- Each row is emitted as a `metric` event. When the `runs` row leaves `running`, a terminal `run` event with the status is emitted and the stream closes.
-- `from`/`to` bound the feed, `endpoint` filters it, and `interval_ms` sets the poll interval (100–60000, default 1000).
-- The stream has no backfill-then-poll distinction: it simply resumes from `from` (or the epoch) on connect, so reconnects replay points already written. Because the flusher batches writes, there is an inherent lag of roughly `FLUSH_INTERVAL_MS`. Orchestrated runs write their points only at exit, so their stream is quiet until completion; the stream is most useful for WS/gRPC/Kafka-fed runs.
-- Client disconnect sets `stream.aborted` and ends the loop; the route does not hold the connection open after that.
+### Probes and health semantics
 
-## Data model
+- **Liveness:** `/api/health`, `/api/health/live`, `/livez` are static/no-DB probes.
+- **Readiness:** `/api/health/ready`, `/readyz` return DB + flusher telemetry and aggregate service health. In split deployments the dashboard readiness probes the ingest service and reports per-service status; returns `503` when unhealthy/degraded.
+- UI topbar health badge consumes `/readyz` and treats all required services healthy as `healthy`, otherwise `broken`.
 
-- **`metrics`** — raw hypertable: `time`, `run_id`, `endpoint`, `rps`, `p50`, `p95`, `p99`, `error_rate`, plus per-bucket VU counter deltas (`vusers_started`, `vusers_stopped`, `vusers_created`, `vusers_completed`), absolute `error_count`, and response-time histogram quantiles (`hist_min`, `hist_max`, `hist_p75`, `hist_p90`, `hist_p999`). One-day chunks; index on `(run_id, time DESC)`. Aggregate rows use `endpoint = ''`; per-endpoint rows use the plugin's URL/request name. Aggregate error rate is VU-based; per-endpoint error rate is request-based. `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` statements exist so `db:init` upgrades pre-existing volumes in place; dropping and recreating the CAGGs gives them the new columns.
-- **`runs`** — run metadata: `id`, `started_at`, `duration_ms`, `total_requests`, `p50`, `p95`, `p99`, `error_rate`, `status`, `failure_reason`, `config_yaml`, `json_path`. `status` is `running`, `completed`, or `failed`; `failure_reason` records why a run ended abnormally when known; `json_path` is the persisted report location for orchestrated runs.
-- **Policies** — continuous aggregates refresh on schedules; raw metrics compress after 7 days and are retained for 90 days.
-- `metrics_10s`, `metrics_1m`, and `metrics_1h` use `timescaledb.materialized_only = false`, so they include recent unmaterialized data. `metrics_1d` remains materialized-only.
+## HTTP/API composition
 
-## Key files
+`src/server/app.ts` wires middleware/routes (structured logging, security headers/CSP, compression, CORS before auth), auth for `/api/runs/*` and `/ws` (when enabled), route mounting (`/api/runs`, `/api/health`, `/api/overview`, `/ws`), probe aliases, static UI serving from `UI_DIST_DIR` (`ui/dist` by default), and SPA fallback behavior.
 
-| File | Responsibility |
-| --- | --- |
-| `src/index.ts` | Process bootstrap, servers, shutdown. |
-| `src/config.ts` | Environment configuration and defaults. |
-| `src/types.ts` | Shared `MetricPoint`, `RunSummary`, `QueryParams`, `MetricBatch` types. |
-| `src/server/app.ts` | Hono app, `/ws` ingestion, route mounting, CORS and auth wiring. |
-| `src/server/middleware/auth.ts` | Bearer token authentication (constant-time compare, query-param fallback). |
-| `ui/` (own package) | Lit dashboard (TEA/MVU): hash router, `core/` runtime, `app/` shell, `features/` slices, `components/` primitives, `services/` IO boundary, `styles/`. Vite build → `ui/dist`. |
-| `src/server/grpc.ts` | Connect service implementation and proto → domain mapping. |
-| `src/server/kafka.ts` | Optional Kafka consumer lifecycle. |
-| `src/server/routes/runs.ts` | Run and metric query endpoints. |
-| `src/server/routes/health.ts` | Health endpoint. |
-| `src/logger.ts` | Shared Pino logger and Hono `AppEnv` logger typing. |
-| `src/lib/normalize.ts` | JSON payload normalization and alias handling. |
-| `src/lib/artillery.ts` | Run orchestration, report parsing, report persistence, and active-run tracking. |
-| `src/lib/ring-buffer.ts` | Fixed-capacity drop-oldest ring buffer. |
-| `src/lib/flusher.ts` | Buffered batch writes to TimescaleDB. |
-| `src/db/client.ts` | postgres.js client. |
-| `src/db/schema.sql` | Hypertable, runs table, continuous aggregates, policies. |
-| `proto/metrics/v1/ingest.proto` | gRPC/Connect service and message definitions. |
-| `src/gen/**` | Generated protobuf TypeScript; do not edit by hand. |
-| `ui/src/**` | Dashboard source (TEA structure): `core/`, `app/`, `features/`, `components/`, `services/`, `styles/`, plus shared router/types/format/chart helpers and shims. |
+Auth is a shared Bearer token (`API_TOKEN`, opt-in). gRPC port does not enforce this token check.
 
-## Known gaps and rough edges
+## UI architecture (high level)
 
-- The dashboard is covered by Vitest unit tests (router, formatters) and 9 Playwright E2E scenarios with a stubbed API; chart pixel output is not asserted.
-- `ui/dist` must exist and be built for the dashboard to be served; an unbuilt checkout returns 404s for non-API paths (and JSON 404s for `/api/*`).
-- Orchestrated runs are not streamed live: their metrics appear only after Artillery exits and the final report is processed. `GET /api/runs/:id/live` streams points for WS/gRPC/Kafka-fed runs once the flusher writes them. A crash before report processing loses an orchestrated run's metrics.
-- The `runs` list endpoint is offset-paginated; deep offsets on a large `runs` table will get slower as the table grows.
-- The `artillery` binary is not a project dependency; operators must install it on the host or in the runtime image.
-- Authentication is opt-in (`API_TOKEN`, disabled by default) and does not cover the gRPC port; keep that port on a trusted network.
-- `metrics_1h` and `metrics_1d` use `avg(...)` over already-aggregated percentiles; they are approximations rather than recomputed percentiles.
-- Docker Compose publishes port `3000` only; the gRPC port `3001` is not exposed by the default stack.
+The dashboard in `ui/` is a Lit/Vite app following TEA/MVU conventions (`core/`, `app/`, `features/`, `components/`, `services/`, `styles/`). It consumes REST/SSE APIs, uses hash routing, and is served by the API server in production builds (or proxied in Vite dev mode).
+
+## Known implementation notes / gaps
+
+- Kafka consumer startup is role-gated in `index.ts` to `ingest`/`all`; keep it that way to avoid duplicate/incorrect consumption on API-only replicas.
+- In-memory flusher buffers and active run tracking are process-local; restarts can lose in-flight buffered points and in-memory run handles.
+- `metrics_1h`/`metrics_1d` percentile rollups are approximations over aggregated values.
+- Dashboard automated tests do not pixel-assert chart rendering.
+- gRPC port is not exposed by default Compose publishing and lacks Bearer-token enforcement.
