@@ -634,8 +634,9 @@ describe("runs routes", () => {
     expect(res.status).toBe(500);
     expect(await res.json()).toEqual({ error: "failed to start run" });
 
-    const update = h.sqlMock.mock.calls.at(-1);
-    expect(update?.[1]).toBe("run-1");
+    const updateValues = h.sqlMock.mock.calls.at(-1) ?? [];
+    expect(updateValues).toContain("start_failed");
+    expect(updateValues).toContain("run-1");
     expect(h.logger.error).toHaveBeenCalledWith(
       { err, runId: "run-1" },
       "[artillery] failed to start run",
@@ -648,9 +649,13 @@ describe("runs routes", () => {
     const res = await client[":id"].$delete({ param: { id: "run-1" } });
 
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ id: "run-1", status: "killed" });
+    expect(await res.json()).toEqual({
+      id: "run-1",
+      status: "killed",
+      failure_reason: "killed",
+    });
     expect(h.killRun).toHaveBeenCalledWith("run-1");
-    expect(h.sqlMock.mock.calls.at(-1)?.[1]).toBe("run-1");
+    expect(h.sqlMock.mock.calls.at(-1)).toContain("run-1");
   });
 
   it("returns 404 when deleting an unknown run", async () => {

@@ -42,7 +42,7 @@ Broadside is a self-hosted backend and dashboard for [Artillery](https://www.art
 
 Broadside supports shared-secret Bearer authentication for the REST API (including the SSE live feed) and the `/ws` ingest endpoint, but it is **disabled by default**. Treat the REST, WebSocket, and gRPC ports as trusted internal services unless you set a token:
 
-- Set `API_TOKEN` to require `Authorization: Bearer <token>` on `/api/runs/*`, `/api/runs/:id/live`, and `/ws`. `/api/health` stays public so load balancers can probe it. WebSocket and EventSource clients can fall back to `?token=`; prefer the header, since query strings end up in logs.
+- Set `API_TOKEN` to require `Authorization: Bearer <token>` on `/api/runs/*`, `/api/runs/:id/live`, and `/ws`. Health/liveness/readiness probes stay public (`/api/health`, `/api/health/live`, `/api/health/ready`, `/livez`, `/readyz`) so load balancers and monitors can probe them. WebSocket and EventSource clients can fall back to `?token=`; prefer the header, since query strings end up in logs.
 - Bind the service to localhost or run it behind an authenticated reverse proxy with TLS when serving beyond a trusted network. The gRPC port (`PORT + 1`) has no token check; keep it on a trusted network.
 - Restrict browser access with `CORS_ORIGINS` (comma-separated allow-list, defaulting to the Vite dev server). Set `CORS_ORIGINS=*` only for deployments that accept any origin.
 - Keep `DATABASE_URL`, `API_TOKEN`, and other credentials in `.env`; never commit them.
@@ -378,8 +378,12 @@ curl -s "http://localhost:3000/api/runs/run-123/raw?from=2026-01-01T00:00:00Z"
 | `GET` | `/api/runs/:id/raw` | Raw metric points, limited to 100,000 rows. |
 | `GET` | `/api/runs/:id/live` | Server-Sent Events stream of raw points plus a terminal run event. |
 | `POST` | `/api/runs` | Start an Artillery run with `{ "script_path": "...", "id"?, "config"?, "extra_args"? }`. |
-| `DELETE` | `/api/runs/:id` | Kill a running run, or delete a finished run and its metrics. |
-| `GET` | `/api/health` | Health, uptime, database check, and flusher statistics. Public (no token). Returns `503` when the database is unreachable. |
+| `DELETE` | `/api/runs/:id` | Kill a running run (marked `failed` with `failure_reason`), or delete a finished run and its metrics. |
+| `GET` | `/api/health` | Detailed health/readiness payload (uptime, DB check, flusher stats). Public. Returns `503` when the database is unreachable. |
+| `GET` | `/api/health/live` | Cheap liveness probe (no DB). Public. |
+| `GET` | `/api/health/ready` | Readiness probe (DB + flusher stats). Public. |
+| `GET` | `/livez` | Cheap liveness probe alias (no DB). Public. |
+| `GET` | `/readyz` | Readiness probe alias. Public. |
 | `GET` | `/api/overview?days=<1\|7\|30>&frequency=<day\|week>` | Overview dashboard aggregates: SLO status, per-run p95/error-rate trend, run frequency, worst endpoints, regression alerts, and recent runs. Returns `meta` with the applied window/bucket. |
 | `WS` | `/ws` | JSON metric ingestion. |
 
@@ -453,7 +457,7 @@ Artillery / load generator
 
 `POST /api/runs` validates `script_path`, inserts a `running` row, and calls `spawnArtillery` in `src/lib/artillery.ts`. Artillery runs with `--output <temp>/report.json --quiet`; its stderr is captured for failure messages, and the temporary directory is removed after processing.
 
-When the process exits successfully, Broadside parses the report into `MetricPoint[]`, feeds them to the flusher, persists the raw JSON under `ARTILLERY_REPORT_DIR`, and updates the `runs` row to `completed`. A non-zero exit, spawn error, or report-processing error marks the row `failed` and logs the reason. Killing an active run sends `SIGTERM` and marks the row `failed` without ingesting a report. The in-memory `activeRuns` map guards against duplicate concurrent runs and prevents double-settling on `close`/`error` events.
+When the process exits successfully, Broadside parses the report into `MetricPoint[]`, feeds them to the flusher, persists the raw JSON under `ARTILLERY_REPORT_DIR`, and updates the `runs` row to `completed`. A non-zero exit, spawn error, or report-processing error marks the row `failed` with a `failure_reason` and logs details. Killing an active run sends `SIGTERM` and marks the row `failed` (`failure_reason: "killed"`) without ingesting a report. The in-memory `activeRuns` map guards against duplicate concurrent runs and prevents double-settling on `close`/`error` events.
 
 ### Write path
 
@@ -461,7 +465,7 @@ All ingestion paths call the singleton `MetricsFlusher`, which pushes points int
 
 ### Query path
 
-The REST layer reads from the raw `metrics` hypertable for `/raw` and from the `metrics_1m`, `metrics_1h`, or `metrics_1d` continuous aggregate for `/metrics`. The health endpoint reports the flusher's `buffered`, `dropped`, and `flushed` counters.
+The REST layer reads from the raw `metrics` hypertable for `/raw` and from the `metrics_10s`, `metrics_1m`, `metrics_1h`, or `metrics_1d` continuous aggregate for `/metrics`. The detailed health/readiness endpoints report flusher telemetry (`buffered`, `dropped`, `flushed`, `dbWriteErrors`, `lastFlushAt`, `lastFlushDurationMs`, `maxBuffered`). Use `/livez` or `/api/health/live` for cheap liveness probes that must not touch the database.
 
 ## Data model
 
@@ -507,6 +511,12 @@ WHERE run_id = 'run-123'
 ORDER BY bucket;
 ```
 
+### Performance & self-load notes
+
+- Under high connection churn, tune HTTP keep-alive/timeouts (`SERVER_*` env vars) and ensure the load generator reuses connections (keep-alive/pooling). Defaults favor longer-lived keep-alive to reduce TIME_WAIT/accept pressure.
+- **Self-load caveat:** running Artillery against Broadside on the same host/Docker Desktop loopback while ingesting metrics back into Broadside contends for the same ephemeral ports, sockets, CPU, and DB budget. Connection-level failures (e.g. `ECONNRESET`/`EAGAIN`/`EPIPE`) at peak can indicate loopback/socket exhaustion rather than application errors; validate with a clean baseline profile (keep-alive on, minimal/no ingest/DB path) before attributing failures to request handling.
+- For ingest isolation, set `INGEST_PORT` to serve `/ws` on a dedicated listener (separate accept/socket budget from REST/control/SSE). Full process/container separation is recommended for sustained high-volume ingest.
+
 ## Development
 
 ### Configuration
@@ -516,7 +526,12 @@ All configuration is read in `src/config.ts` from environment variables (loaded 
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `PORT` | `3000` | REST/WebSocket port. gRPC listens on `PORT + 1`. |
+| `INGEST_PORT` | `0` | Optional dedicated `/ws` ingest listener port. `0` keeps ingest on `PORT` only. Use a separate port to isolate ingest accept/socket pressure from REST/control/SSE. |
 | `DATABASE_URL` | — (required) | Postgres/TimescaleDB connection string. |
+| `SERVER_KEEP_ALIVE_TIMEOUT_MS` | `65000` | HTTP keep-alive idle timeout (ms). Set above client/LB idle timeout. |
+| `SERVER_HEADERS_TIMEOUT_MS` | `66000` | HTTP headers timeout (ms); must exceed keep-alive timeout. |
+| `SERVER_REQUEST_TIMEOUT_MS` | `120000` | HTTP request timeout (ms). `0` disables. |
+| `SERVER_MAX_REQUESTS_PER_SOCKET` | `1000` | Max requests per keep-alive socket before rotation. `0` disables. |
 | `LOG_LEVEL` | `info` | Pino log level (`trace`, `debug`, `info`, `warn`, `error`, `fatal`, `silent`). |
 | `LOG_PRETTY` | `false` | Set to `true` to format logs with `pino-pretty` for local development. |
 | `ARTILLERY_REPORT_DIR` | `data/reports` | Directory where completed Artillery JSON reports are persisted. |

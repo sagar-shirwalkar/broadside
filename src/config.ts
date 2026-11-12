@@ -3,11 +3,36 @@ loadEnv();
 
 export const config = {
   port: parseInt(process.env.PORT ?? "3000", 10),
+  /** Optional separate port for WebSocket ingest (/ws). 0 disables and keeps /ws on the main port. */
+  ingestPort: parseInt(process.env.INGEST_PORT ?? "0", 10),
   databaseUrl: process.env.DATABASE_URL!,
 
   log: {
     level: process.env.LOG_LEVEL ?? "info",
     pretty: process.env.LOG_PRETTY === "true",
+  },
+
+  server: {
+    /** Keep-alive idle timeout in ms. Must exceed client/LB idle timeout to avoid races. */
+    keepAliveTimeoutMs: parseInt(
+      process.env.SERVER_KEEP_ALIVE_TIMEOUT_MS ?? "65000",
+      10,
+    ),
+    /** Must be greater than keepAliveTimeout. */
+    headersTimeoutMs: parseInt(
+      process.env.SERVER_HEADERS_TIMEOUT_MS ?? "66000",
+      10,
+    ),
+    /** Request timeout in ms (0 disables). */
+    requestTimeoutMs: parseInt(
+      process.env.SERVER_REQUEST_TIMEOUT_MS ?? "120000",
+      10,
+    ),
+    /** Rotate sockets to limit per-connection resource creep (0 = unlimited). */
+    maxRequestsPerSocket: parseInt(
+      process.env.SERVER_MAX_REQUESTS_PER_SOCKET ?? "1000",
+      10,
+    ),
   },
 
   artillery: {

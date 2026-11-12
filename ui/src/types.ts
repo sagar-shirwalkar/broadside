@@ -12,6 +12,7 @@ export interface RunRow {
   p99: number | null;
   error_rate: number | null;
   status: RunStatus;
+  failure_reason?: string | null;
   config_yaml: string | null;
   json_path: string | null;
 }
@@ -72,7 +73,15 @@ export interface HealthResponse {
   status: "ok" | "degraded";
   uptime: number;
   database: { status: "ok" | "error" };
-  flusher: { buffered: number; dropped: number; flushed: number };
+  flusher: {
+    buffered: number;
+    dropped: number;
+    flushed: number;
+    dbWriteErrors?: number;
+    lastFlushAt?: string | null;
+    lastFlushDurationMs?: number;
+    maxBuffered?: number;
+  };
   timestamp: string;
 }
 

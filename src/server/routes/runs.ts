@@ -77,7 +77,7 @@ runs.get("/", async (c) => {
 
   const rows = await sql`
     SELECT id, started_at, duration_ms, total_requests,
-           p50, p95, p99, error_rate, status
+           p50, p95, p99, error_rate, status, failure_reason
     FROM runs
     ORDER BY started_at DESC
     LIMIT ${limit}
@@ -117,7 +117,7 @@ runs.get("/compare", async (c) => {
 
   const runRows = await sql`
     SELECT id, started_at, duration_ms, total_requests,
-           p50, p95, p99, error_rate, status
+           p50, p95, p99, error_rate, status, failure_reason
     FROM runs
     WHERE id = ANY(${ids})
     ORDER BY started_at DESC
@@ -386,7 +386,7 @@ runs.get("/:id/live", async (c) => {
       }
 
       const runRows = await sql`
-        SELECT status, duration_ms, total_requests, p50, p95, p99, error_rate
+        SELECT status, duration_ms, total_requests, p50, p95, p99, error_rate, failure_reason
         FROM runs
         WHERE id = ${id}
       `;
@@ -458,7 +458,7 @@ runs.post("/", async (c) => {
     });
   } catch (err) {
     logger.error({ err, runId }, "[artillery] failed to start run");
-    await sql`UPDATE runs SET status = 'failed' WHERE id = ${runId}`;
+    await sql`UPDATE runs SET status = 'failed', failure_reason = ${"start_failed"} WHERE id = ${runId}`;
     return c.json({ error: "failed to start run" }, 500);
   }
 
@@ -472,8 +472,12 @@ runs.delete("/:id", async (c) => {
 
   if (isRunActive(id)) {
     killRun(id);
-    await sql`UPDATE runs SET status = 'failed' WHERE id = ${id}`;
-    return c.json({ id, status: "killed" });
+    await sql`
+      UPDATE runs
+      SET status = 'failed', failure_reason = COALESCE(failure_reason, ${"killed"})
+      WHERE id = ${id}
+    `;
+    return c.json({ id, status: "killed", failure_reason: "killed" });
   }
 
   const rows = await sql`SELECT id FROM runs WHERE id = ${id}`;

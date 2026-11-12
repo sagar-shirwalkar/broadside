@@ -6,9 +6,9 @@ Broadside is a Node/TypeScript service that ingests Artillery-style metric point
 
 ## Runtime topology
 
-- `src/index.ts` starts the global `metricsFlusher`, the optional Kafka consumer, the Hono server on `PORT` (default `3000`) for REST + WebSocket, and a Node HTTP/2 Connect server on `PORT + 1` (default `3001`).
-- Graceful shutdown stops the flusher, Kafka consumer, WebSocket server, HTTP server, and HTTP/2 server.
-- `src/config.ts` is the only place that reads `process.env`. Ports, DB URL, Kafka settings, logging, report storage, SLO thresholds, and ring-buffer tuning live there.
+- `src/index.ts` starts the global `metricsFlusher`, the optional Kafka consumer, the Hono server on `PORT` (default `3000`) for REST + WebSocket, an optional dedicated ingest WebSocket listener on `INGEST_PORT`, and a Node HTTP/2 Connect server on `PORT + 1` (default `3001`). HTTP servers are tuned for keep-alive/timeouts/request limits via `SERVER_*` config.
+- Graceful shutdown awaits the flusher drain (best effort), stops Kafka, terminates active Artillery children, and closes servers/sockets.
+- `src/config.ts` is the only place that reads `process.env`. Ports, server tuning, ingest port, DB URL, Kafka settings, logging, report storage, SLO thresholds, and ring-buffer tuning live there.
 - Orchestrated runs require an `artillery` binary on `PATH`. Broadside does not bundle it.
 - `src/logger.ts` configures the shared Pino logger. `@hono/structured-logger` logs one entry per HTTP request and reports unhandled route errors.
 
@@ -28,8 +28,8 @@ Broadside is a Node/TypeScript service that ingests Artillery-style metric point
 1. `POST /api/runs` validates that `script_path` is a non-empty string without `..`, rejects duplicate active ids with `409`, and inserts the run as `running`.
 2. `spawnArtillery` creates a temporary directory and runs `artillery run <script> --output <tmp>/report.json --quiet`, appending `extra_args`. It resolves once the child is spawned, not when the run finishes.
 3. Active runs are tracked in an in-memory map. `killRun` sends `SIGTERM` and marks the run terminal so the eventual `close` event does not process a partial report.
-4. On a clean exit, `processReport` reads the report, converts it to points, ingests them, copies the raw JSON to `ARTILLERY_REPORT_DIR`, and updates the `runs` row to `completed`.
-5. A non-zero exit, spawn `error`, or parsing/DB failure marks the run `failed` and logs the reason. The temporary directory is removed in all cases.
+4. On a clean exit, `processReport` reads the report, converts it to points, ingests them, copies the raw JSON to `ARTILLERY_REPORT_DIR`, and updates the `runs` row to `completed` (clearing `failure_reason`).
+5. A non-zero exit, spawn `error`, kill, or parsing/DB failure marks the run `failed` with a `failure_reason` (e.g. `artillery_exit_nonzero`, `spawn_error`, `killed`, `report_processing_failed`, `start_failed`) and logs details. The temporary directory is removed in all cases.
 
 `settled` and `killed` guards prevent double handling when `close` and `error` both fire. Routes await `spawnArtillery` only long enough to catch immediate spawn failures; they return `500` and mark the row failed if the process cannot start.
 
@@ -72,9 +72,9 @@ Rules:
 1. `@hono/structured-logger` — one log line per request.
 2. `hono/cors` — answers `OPTIONS` preflights itself and tags responses with `Access-Control-Allow-Origin` for origins in `CORS_ORIGINS` (default: the Vite dev server). CORS runs first so preflights, which never carry credentials, are not rejected by auth.
 3. Bearer authentication (`src/server/middleware/auth.ts`) on `/api/runs/*` and `/ws`. An empty `API_TOKEN` disables it. The token is compared in constant time (`crypto.timingSafeEqual`); a missing or wrong token gets `401` with `WWW-Authenticate: Bearer`. WebSocket/SSE clients that cannot set headers may pass `?token=` instead.
-4. Routes: `/ws` (upgrade + ingest), `/api/runs`, `/api/health`, `/api/overview`.
+4. Routes: `/ws` (upgrade + ingest), `/api/runs`, `/api/health` (+ `/live`, `/ready`), `/api/overview`, plus `/livez` and `/readyz` aliases.
 
-`/api/health` is deliberately public: it runs `SELECT 1` against the database and reports `database.status`, returning `503` with `status: "degraded"` when the database is unreachable, so container orchestrators and monitors can distinguish "process up" from "database down". The gRPC port has no token check.
+`/api/health` remains a detailed, public probe (DB check + flusher telemetry) for UI/compatibility and returns `503` with `status: "degraded"` when the database is unreachable. `/api/health/live` and `/livez` are cheap liveness probes (no DB). `/api/health/ready` and `/readyz` expose readiness (DB + flusher). The gRPC port has no token check. If `INGEST_PORT` is configured, `/ws` is also served on a dedicated ingest listener to reduce control-plane contention.
 
 After the API routes, `@hono/node-server`'s `serveStatic` serves the built dashboard from `config.ui.distDir` (`UI_DIST_DIR`, default `ui/dist`). A `notFound` handler serves `index.html` for non-API, non-asset GETs (SPA fallback for the hash-less and hash routes) and JSON 404s otherwise. The UI is a separate package built with Vite; its dev server proxies `/api` and `/ws` to this process.
 
@@ -110,7 +110,7 @@ Only `10s`, `1m`, `1h`, and `1d` are valid granularities. The view name is selec
 ## Data model
 
 - **`metrics`** — raw hypertable: `time`, `run_id`, `endpoint`, `rps`, `p50`, `p95`, `p99`, `error_rate`, plus per-bucket VU counter deltas (`vusers_started`, `vusers_stopped`, `vusers_created`, `vusers_completed`), absolute `error_count`, and response-time histogram quantiles (`hist_min`, `hist_max`, `hist_p75`, `hist_p90`, `hist_p999`). One-day chunks; index on `(run_id, time DESC)`. Aggregate rows use `endpoint = ''`; per-endpoint rows use the plugin's URL/request name. Aggregate error rate is VU-based; per-endpoint error rate is request-based. `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` statements exist so `db:init` upgrades pre-existing volumes in place; dropping and recreating the CAGGs gives them the new columns.
-- **`runs`** — run metadata: `id`, `started_at`, `duration_ms`, `total_requests`, `p50`, `p95`, `p99`, `error_rate`, `status`, `config_yaml`, `json_path`. `status` is `running`, `completed`, or `failed`; `json_path` is the persisted report location for orchestrated runs.
+- **`runs`** — run metadata: `id`, `started_at`, `duration_ms`, `total_requests`, `p50`, `p95`, `p99`, `error_rate`, `status`, `failure_reason`, `config_yaml`, `json_path`. `status` is `running`, `completed`, or `failed`; `failure_reason` records why a run ended abnormally when known; `json_path` is the persisted report location for orchestrated runs.
 - **Policies** — continuous aggregates refresh on schedules; raw metrics compress after 7 days and are retained for 90 days.
 - `metrics_10s`, `metrics_1m`, and `metrics_1h` use `timescaledb.materialized_only = false`, so they include recent unmaterialized data. `metrics_1d` remains materialized-only.
 

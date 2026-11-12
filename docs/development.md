@@ -62,8 +62,8 @@ pnpm task setup
 ## Artillery runs
 
 - `POST /api/runs` requires `script_path`; a missing/blank path returns `400`, a path containing `..` returns `400`, and an already-active id returns `409`.
-- The server invokes `artillery run <script> --output <temp>/report.json --quiet` plus any `extra_args`. The report is parsed only after the process exits, which sets `status` to `completed`, fills `duration_ms` / `total_requests` / percentiles / `error_rate`, and ingests the points through the flusher. A non-zero exit, spawn failure, or parsing error marks the run `failed`.
-- Completed reports are copied to `ARTILLERY_REPORT_DIR` (default `data/reports`) and recorded in `runs.json_path`. The directory is gitignored.
+- The server invokes `artillery run <script> --output <temp>/report.json --quiet` plus any `extra_args`. The report is parsed only after the process exits, which sets `status` to `completed`, fills aggregates, and ingests the points through the flusher. Failures mark the run `failed` with `failure_reason` (e.g. `start_failed`, `spawn_error`, `artillery_exit_nonzero`, `report_processing_failed`, `killed`).
+- Completed reports are copied to `ARTILLERY_REPORT_DIR` (default `data/reports`) and recorded in `runs.json_path`. The directory is gitignored. Use `INGEST_PORT` for a dedicated `/ws` ingest listener and `SERVER_*` env vars for HTTP keep-alive/timeouts under load (especially in self-load/Docker Desktop scenarios). Probes: `/livez` (cheap liveness), `/readyz` or `/api/health/ready` (DB+flusher).
 - Per-endpoint points require Artillery's `metrics-by-endpoint` plugin. It is enabled by default since Artillery v2.0.1; older or plugin-less reports still produce an aggregate point.
 - `load-tests/` (gitignored) holds local sample scripts: `load-test.yml` (10s smoke), `steady-state.yml`, `ramp.yml`, `multi-session.yml`, `mixed-load.yml` — all gentle (≤8 rps) with multi-phase shapes for chart exercises.
 - `POST /api/runs` refuses with `429` once `ARTILLERY_MAX_CONCURRENT` children are already running, and with `413` for configs over 200 KB. On shutdown the server SIGTERMs any still-running children.

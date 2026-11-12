@@ -621,7 +621,11 @@ describe("spawnArtillery", () => {
 
     await vi.waitFor(() => {
       expect(h.logger.error).toHaveBeenCalledWith(
-        { runId: "run-1", reason: "invalid script" },
+        {
+          runId: "run-1",
+          reason: "invalid script",
+          failureReason: "artillery_exit_nonzero",
+        },
         "[artillery] run failed",
       );
     });
@@ -638,7 +642,11 @@ describe("spawnArtillery", () => {
 
     await vi.waitFor(() => {
       expect(h.logger.error).toHaveBeenCalledWith(
-        { runId: "run-1", reason: "artillery exited with code 2" },
+        {
+          runId: "run-1",
+          reason: "artillery exited with code 2",
+          failureReason: "artillery_exit_nonzero",
+        },
         "[artillery] run failed",
       );
     });
@@ -706,7 +714,7 @@ describe("spawnArtillery", () => {
     expect(h.sqlMock).not.toHaveBeenCalled();
   });
 
-  it("treats a killed run as terminal without updating the row", async () => {
+  it("treats a killed run as terminal and records failure_reason", async () => {
     const proc = createProc();
     h.spawn.mockReturnValue(proc);
 
@@ -724,7 +732,12 @@ describe("spawnArtillery", () => {
         force: true,
       });
     });
-    expect(h.sqlMock).not.toHaveBeenCalled();
+    await vi.waitFor(() => {
+      expect(h.sqlMock).toHaveBeenCalled();
+    });
+    const values = h.sqlMock.mock.calls.flat();
+    expect(values).toContain("run-1");
+    expect(values).toContain("killed");
   });
 
   it("reports unknown runs as inactive", () => {

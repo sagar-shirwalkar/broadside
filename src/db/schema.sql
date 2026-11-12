@@ -56,9 +56,13 @@ CREATE TABLE IF NOT EXISTS runs (
   p99             DOUBLE PRECISION,
   error_rate      DOUBLE PRECISION,
   status          TEXT NOT NULL DEFAULT 'running',
+  failure_reason  TEXT,
   config_yaml     TEXT,
   json_path       TEXT
 );
+
+-- Existing volumes: upgrade in place.
+ALTER TABLE runs ADD COLUMN IF NOT EXISTS failure_reason TEXT;
 
 -- Continuous Aggregates (hierarchical)
 -- NOTE: GROUP BY is positional on purpose. `GROUP BY bucket` in the 1h/1d

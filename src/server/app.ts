@@ -15,6 +15,35 @@ import runs from "./routes/runs.js";
 import health from "./routes/health.js";
 import overview from "./routes/overview.js";
 
+function registerWsIngest(app: Hono<AppEnv>): void {
+  // WebSocket ingestion
+  app.get(
+    "/ws",
+    upgradeWebSocket(() => ({
+      onMessage(event, ws) {
+        try {
+          const text = String(event.data);
+          // Bound a single message: the flusher will shed load anyway, but
+          // parsing a multi-megabyte JSON blob just to drop it is wasteful
+          // and blocks the event loop.
+          if (text.length > config.ingest.maxMessageBytes) {
+            ws.send(JSON.stringify({ error: "message too large" }));
+            return;
+          }
+          const raw = JSON.parse(text);
+          const points = normalizeBatch(raw);
+          const capped = points.slice(0, config.ingest.maxBatchPoints);
+          if (capped.length > 0) {
+            metricsFlusher.ingest(capped);
+          }
+        } catch {
+          ws.send(JSON.stringify({ error: "invalid message" }));
+        }
+      },
+    })),
+  );
+}
+
 export function createApp(): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
 
@@ -99,34 +128,29 @@ export function createApp(): Hono<AppEnv> {
   app.use("/api/runs/*", auth);
   app.use("/ws", auth);
 
-  // WebSocket ingestion
-  app.get("/ws", upgradeWebSocket(() => ({
-    onMessage(event, ws) {
-      try {
-        const text = String(event.data);
-        // Bound a single message: the flusher will shed load anyway, but
-        // parsing a multi-megabyte JSON blob just to drop it is wasteful
-        // and blocks the event loop.
-        if (text.length > config.ingest.maxMessageBytes) {
-          ws.send(JSON.stringify({ error: "message too large" }));
-          return;
-        }
-        const raw = JSON.parse(text);
-        const points = normalizeBatch(raw);
-        const capped = points.slice(0, config.ingest.maxBatchPoints);
-        if (capped.length > 0) {
-          metricsFlusher.ingest(capped);
-        }
-      } catch {
-        ws.send(JSON.stringify({ error: "invalid message" }));
-      }
-    },
-  })));
+  registerWsIngest(app);
 
   // REST API
   app.route("/api/runs", runs);
   app.route("/api/health", health);
   app.route("/api/overview", overview);
+
+  // Cheap liveness for probes/load balancers (no DB). Keep /api/health as
+  // detailed readiness-compatible payload for existing UI/consumers.
+  app.get("/livez", (c) =>
+    c.json({
+      status: "ok",
+      uptime: process.uptime(),
+      timestamp: new Date().toISOString(),
+    }),
+  );
+  app.get("/readyz", async (c) => {
+    const res = await health.request("/ready");
+    return new Response(res.body, {
+      status: res.status,
+      headers: res.headers,
+    });
+  });
 
   // Dashboard (built into config.ui.distDir). Missing files fall through to
   // the notFound handler below, which serves the SPA entry point. The entry
@@ -145,6 +169,8 @@ export function createApp(): Hono<AppEnv> {
       method !== "GET" ||
       path.startsWith("/api/") ||
       path === "/ws" ||
+      path === "/livez" ||
+      path === "/readyz" ||
       assetLike ||
       uiIndexHtml === null
     ) {
@@ -153,5 +179,30 @@ export function createApp(): Hono<AppEnv> {
     return c.html(uiIndexHtml);
   });
 
+  return app;
+}
+
+/** Minimal app for a dedicated ingest listener (separate port/process budget). */
+export function createIngestApp(): Hono<AppEnv> {
+  const app = new Hono<AppEnv>();
+  const auth = createAuthMiddleware(config.auth.token);
+
+  app.use(
+    cors({
+      origin: config.cors.origins.includes("*") ? "*" : config.cors.origins,
+      allowMethods: ["GET", "OPTIONS"],
+      allowHeaders: ["Content-Type", "Authorization"],
+      maxAge: 600,
+    }),
+  );
+
+  app.use("/ws", auth);
+  registerWsIngest(app);
+
+  app.get("/livez", (c) =>
+    c.json({ status: "ok", uptime: process.uptime(), timestamp: new Date().toISOString() }),
+  );
+
+  app.notFound((c) => c.json({ error: "not found" }, 404));
   return app;
 }

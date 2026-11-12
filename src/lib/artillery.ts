@@ -179,7 +179,7 @@ async function handleClose(
 
   try {
     if (activeRun.killed) {
-      // DELETE /api/runs/:id already marked the row as failed.
+      await markRunFailed(activeRun, "killed");
       return;
     }
 
@@ -189,6 +189,7 @@ async function handleClose(
       await failRun(
         activeRun,
         stderr.trim() || `artillery exited with code ${code}`,
+        "artillery_exit_nonzero",
       );
     }
   } catch (err) {
@@ -196,7 +197,7 @@ async function handleClose(
       { err, runId: activeRun.id },
       "[artillery] error processing run",
     );
-    await failRun(activeRun, "failed to process report");
+    await failRun(activeRun, "failed to process report", "report_processing_failed");
   } finally {
     await rm(activeRun.tmpDir, { recursive: true, force: true }).catch(
       () => {},
@@ -213,27 +214,40 @@ async function handleSpawnError(
   activeRuns.delete(activeRun.id);
 
   logger.error({ err, runId: activeRun.id }, "[artillery] spawn error");
-  await failRun(activeRun, err.message);
+  await failRun(activeRun, err.message, "spawn_error");
   await rm(activeRun.tmpDir, { recursive: true, force: true }).catch(() => {});
 }
 
-async function failRun(activeRun: ActiveRun, reason: string): Promise<void> {
+async function markRunFailed(
+  activeRun: ActiveRun,
+  failureReason: string,
+): Promise<void> {
   const durationMs = Date.now() - activeRun.startedAt.getTime();
-
   try {
     await sql`
-      UPDATE runs SET status = 'failed', duration_ms = ${durationMs}
+      UPDATE runs SET
+        status = 'failed',
+        duration_ms = COALESCE(duration_ms, ${durationMs}),
+        failure_reason = COALESCE(failure_reason, ${failureReason})
       WHERE id = ${activeRun.id}
     `;
   } catch (err) {
     logger.error(
-      { err, runId: activeRun.id },
+      { err, runId: activeRun.id, failureReason },
       "[artillery] failed to mark run as failed",
     );
   }
+}
+
+async function failRun(
+  activeRun: ActiveRun,
+  reason: string,
+  failureReason = "failed",
+): Promise<void> {
+  await markRunFailed(activeRun, failureReason);
 
   logger.error(
-    { runId: activeRun.id, reason },
+    { runId: activeRun.id, reason, failureReason },
     "[artillery] run failed",
   );
 }
@@ -543,6 +557,7 @@ export async function processReport(
       p95 = ${responseTime?.p95 ?? 0},
       p99 = ${responseTime?.p99 ?? 0},
       error_rate = ${totalCreated > 0 ? totalFailed / totalCreated : 0},
+      failure_reason = NULL,
       json_path = ${reportPath}
     WHERE id = ${runId}
   `;
