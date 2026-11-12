@@ -147,7 +147,7 @@ No global `task` or `buf` install is required; both come from dev dependencies.
    In production you normally run the Docker stack:
 
    ```bash
-   docker compose up --build -d   # dashboard + db
+   docker compose up --build -d   # dashboard + ingest + db
    docker compose logs -f         # tail logs
    docker compose down            # stop everything
    ```
@@ -157,22 +157,19 @@ No global `task` or `buf` install is required; both come from dev dependencies.
    Wait for the API server to print its "listening" line, then:
 
    ```bash
+   # Liveness (static, no DB)
    curl -s http://localhost:3000/api/health
+
+   # Readiness (DB + flusher telemetry)
+   curl -s http://localhost:3000/readyz
    ```
 
    ```json
-   {
-     "status": "ok",
-     "uptime": 12.3,
-     "database": { "status": "ok" },
-     "flusher": { "buffered": 0, "dropped": 0, "flushed": 42 },
-     "timestamp": "2026-11-08T12:00:00.000Z"
-   }
+   // /api/health
+   { "status": "ok", "uptime": 12.3, "timestamp": "2026-11-08T12:00:00.000Z" }
    ```
 
-   If the database check says `panic`/`error`, the database is down —
-   run `pnpm task db:up` and re-check. `docker compose logs db` shows
-   the database log.
+   `/readyz` returns `200` with `database` and `flusher` details when ready, or `503` when degraded/unready. If readiness fails, ensure TimescaleDB is up (`pnpm task db:up`) and re-check. `docker compose logs db` shows the database log. The Docker Compose stack includes `dashboard` (API/UI), `ingest`, and `db`; `pnpm task db:up` starts only the database, while `docker compose up --build -d` (or `pnpm task docker:up`) starts the full split stack. The compose ingest service listens on `INGEST_SERVICE_PORT` (default `3002`); `INGEST_PORT` in `.env` controls optional in-process ingest separation for local/non-container runs.
 
 ## Usage
 

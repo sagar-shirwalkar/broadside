@@ -8,7 +8,7 @@ services:
       - SERVICE_ROLE=api
       - PORT=${PORT:-3000}
       - DATABASE_URL=${DATABASE_URL:-postgres://postgres:postgres@db:5432/artillery}
-      - INGEST_URL=${INGEST_URL:-ws://ingest:3002/ws}
+      - INGEST_URL=${INGEST_URL:-ws://ingest:${INGEST_SERVICE_PORT:-3002}/ws}
       - ARTILLERY_REPORT_DIR=/app/data/reports
       - LOG_LEVEL=${LOG_LEVEL:-info}
       - API_TOKEN=${API_TOKEN:-}
@@ -34,7 +34,6 @@ services:
       timeout: 5s
       retries: 5
       start_period: 20s
-    cpuset: ${DASHBOARD_CPUSET:-}
     mem_limit: ${DASHBOARD_MEM_LIMIT:-1g}
     cpus: ${DASHBOARD_CPUS:-1.0}
     deploy:
@@ -49,11 +48,11 @@ services:
   ingest:
     build: .
     ports:
-      - "${INGEST_PORT:-3002}:${INGEST_PORT:-3002}"
+      - "${INGEST_SERVICE_PORT:-3002}:${INGEST_SERVICE_PORT:-3002}"
     environment:
       - SERVICE_ROLE=ingest
-      - PORT=${INGEST_PORT:-3002}
-      - INGEST_PORT=${INGEST_PORT:-3002}
+      - PORT=${INGEST_SERVICE_PORT:-3002}
+      - INGEST_PORT=${INGEST_SERVICE_PORT:-3002}
       - DATABASE_URL=${DATABASE_URL:-postgres://postgres:postgres@db:5432/artillery}
       - ARTILLERY_REPORT_DIR=/app/data/reports
       - LOG_LEVEL=${LOG_LEVEL:-info}
@@ -74,12 +73,11 @@ services:
         condition: service_healthy
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:${INGEST_PORT:-3002}/readyz >/dev/null 2>&1 || exit 1"]
+      test: ["CMD-SHELL", "wget -qO- http://localhost:${INGEST_SERVICE_PORT:-3002}/readyz >/dev/null 2>&1 || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 20s
-    cpuset: ${INGEST_CPUSET:-}
     mem_limit: ${INGEST_MEM_LIMIT:-1g}
     cpus: ${INGEST_CPUS:-1.0}
     deploy:

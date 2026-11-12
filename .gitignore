@@ -26,5 +26,8 @@ AGENTS.md
 ui/test-results/
 ui/playwright-report/
 
+# Local Docker Compose overrides (copy from docker-compose.override.example.yml)
+docker-compose.override.yml
+
 # Env vars
 .env
