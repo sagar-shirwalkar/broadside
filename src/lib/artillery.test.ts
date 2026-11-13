@@ -13,6 +13,7 @@ const h = vi.hoisted(() => {
       debug: vi.fn(),
     },
     ingest: vi.fn(),
+    flush: vi.fn().mockResolvedValue(undefined),
     spawn: vi.fn(),
     mkdtemp: vi.fn(),
     readFile: vi.fn(),
@@ -33,10 +34,15 @@ vi.mock("node:fs/promises", () => ({
 vi.mock("../db/client.js", () => ({ sql: h.sqlMock }));
 vi.mock("../logger.js", () => ({ logger: h.logger }));
 vi.mock("../config.js", () => ({
-  config: { artillery: { reportDir: "/tmp/reports" } },
+  config: {
+    artillery: { reportDir: "/tmp/reports" },
+    ingestPort: 0,
+    port: 3000,
+    ingestUrl: "",
+  },
 }));
 vi.mock("./flusher.js", () => ({
-  metricsFlusher: { ingest: h.ingest },
+  metricsFlusher: { ingest: h.ingest, flush: h.flush },
 }));
 
 import {
@@ -472,6 +478,9 @@ describe("processReport", () => {
       "/tmp/artillery-run/report.json",
       "utf-8",
     );
+    expect(h.flush).toHaveBeenCalled();
+    expect(h.sqlMock).toHaveBeenCalledTimes(2); // delete streamed metrics, then update run
+    expect(h.sqlMock.mock.calls[0]?.join(" ")).toContain("DELETE FROM metrics");
     expect(h.ingest).toHaveBeenCalledTimes(1);
     expect(h.ingest.mock.calls[0][0]).toHaveLength(2);
 
@@ -482,7 +491,7 @@ describe("processReport", () => {
       "utf-8",
     );
 
-    const update = h.sqlMock.mock.calls[0];
+    const update = h.sqlMock.mock.calls[1];
     expect(update?.[1]).toBe(10_000);
     expect(update?.[2]).toBe(30);
     expect(update?.[3]).toBe(4);
@@ -515,7 +524,7 @@ describe("processReport", () => {
 
     await processReport("run-1", "/tmp/report.json");
 
-    expect(h.sqlMock.mock.calls[0]?.[1]).toBe(2_500);
+    expect(h.sqlMock.mock.calls[1]?.[1]).toBe(2_500);
   });
 
   it("reports zero duration when no timestamps are available", async () => {
@@ -527,7 +536,7 @@ describe("processReport", () => {
 
     await processReport("run-1", "/tmp/report.json");
 
-    expect(h.sqlMock.mock.calls[0]?.[1]).toBe(0);
+    expect(h.sqlMock.mock.calls[1]?.[1]).toBe(0);
   });
 });
 
@@ -552,7 +561,10 @@ describe("spawnArtillery", () => {
       ],
       aggregate: aggregateOnly,
     };
-    h.readFile.mockResolvedValue(JSON.stringify(report));
+    h.readFile.mockImplementation(async (path: string) => {
+      if (String(path).endsWith("load.yml")) return "config:\n  target: http://localhost\nscenarios: []\n";
+      return JSON.stringify(report);
+    });
 
     await spawnArtillery({
       runId: "run-1",
@@ -565,20 +577,28 @@ describe("spawnArtillery", () => {
     );
     expect(h.spawn).toHaveBeenCalledWith(
       "artillery",
-      [
+      expect.arrayContaining([
         "run",
-        "load.yml",
+        "/tmp/artillery-run-1/script.live.yml",
         "--output",
         "/tmp/artillery-run-1/report.json",
         "--quiet",
         "--environment",
         "staging",
-      ],
+      ]),
       expect.objectContaining({
         stdio: ["ignore", "pipe", "pipe"],
-        env: expect.objectContaining({ ARTILLERY_DISABLE_TELEMETRY: "1" }),
+        cwd: expect.any(String),
+        env: expect.objectContaining({
+          ARTILLERY_DISABLE_TELEMETRY: "1",
+          BROADSIDE_RUN_ID: "run-1",
+          BROADSIDE_INGEST_URL: "ws://127.0.0.1:3000/ws",
+          NODE_PATH: expect.stringContaining("/tmp/artillery-run-1"),
+        }),
       }),
     );
+    const argv = h.spawn.mock.calls[0]?.[1] as string[];
+    expect(argv).not.toContain("-p");
     expect(isRunActive("run-1")).toBe(true);
 
     proc.emit("close", 0);
@@ -596,13 +616,16 @@ describe("spawnArtillery", () => {
   it("marks the run failed when the report cannot be processed", async () => {
     const proc = createProc();
     h.spawn.mockReturnValue(proc);
-    h.readFile.mockRejectedValue(new Error("ENOENT"));
+    h.readFile.mockImplementation(async (path: string) => {
+      if (String(path).endsWith("load.yml")) return "config: {}\nscenarios: []\n";
+      throw new Error("ENOENT");
+    });
 
     await spawnArtillery({ runId: "run-1", scriptPath: "load.yml" });
     proc.emit("close", 0);
 
     await vi.waitFor(() => {
-      expect(h.sqlMock).toHaveBeenCalledTimes(1);
+      expect(h.sqlMock).toHaveBeenCalled();
     });
     expect(h.logger.error).toHaveBeenCalledWith(
       expect.objectContaining({ runId: "run-1" }),
@@ -614,6 +637,7 @@ describe("spawnArtillery", () => {
   it("marks the run failed when Artillery exits non-zero", async () => {
     const proc = createProc();
     h.spawn.mockReturnValue(proc);
+    h.readFile.mockResolvedValue("config: {}\nscenarios: []\n");
 
     await spawnArtillery({ runId: "run-1", scriptPath: "load.yml" });
     proc.emitStderr("invalid script");
@@ -636,6 +660,7 @@ describe("spawnArtillery", () => {
   it("falls back to the exit code when stderr is empty", async () => {
     const proc = createProc();
     h.spawn.mockReturnValue(proc);
+    h.readFile.mockResolvedValue("config: {}\nscenarios: []\n");
 
     await spawnArtillery({ runId: "run-1", scriptPath: "load.yml" });
     proc.emit("close", 2);
@@ -655,6 +680,7 @@ describe("spawnArtillery", () => {
   it("marks the run failed when an error arrives after spawn", async () => {
     const proc = createProc();
     h.spawn.mockReturnValue(proc);
+    h.readFile.mockResolvedValue("config: {}\nscenarios: []\n");
     const err = new Error("spawn artillery ENOENT");
 
     await spawnArtillery({ runId: "run-1", scriptPath: "load.yml" });
@@ -693,6 +719,7 @@ describe("spawnArtillery", () => {
   it("rejects when the Artillery binary fails to start", async () => {
     const proc = createProc({ autoSpawn: false });
     h.spawn.mockReturnValue(proc);
+    h.readFile.mockResolvedValue("config: {}\nscenarios: []\n");
 
     const started = spawnArtillery({ runId: "run-1", scriptPath: "load.yml" });
     await vi.waitFor(() => {
@@ -717,6 +744,7 @@ describe("spawnArtillery", () => {
   it("treats a killed run as terminal and records failure_reason", async () => {
     const proc = createProc();
     h.spawn.mockReturnValue(proc);
+    h.readFile.mockResolvedValue("config: {}\nscenarios: []\n");
 
     await spawnArtillery({ runId: "run-1", scriptPath: "load.yml" });
 

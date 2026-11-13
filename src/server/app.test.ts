@@ -5,7 +5,7 @@ const h = vi.hoisted(() => ({
   ingest: vi.fn(),
   shouldSlowDown: vi.fn(() => false),
   noteSlowDownSent: vi.fn(),
-  logger: { info: vi.fn(), error: vi.fn() },
+  logger: { info: vi.fn(), error: vi.fn(), debug: vi.fn(), warn: vi.fn() },
 }));
 
 vi.mock("@hono/node-server", () => ({

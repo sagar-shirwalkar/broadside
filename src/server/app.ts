@@ -36,9 +36,12 @@ function registerWsIngest(app: Hono<AppEnv>): void {
           const capped = points.slice(0, config.ingest.maxBatchPoints);
           if (capped.length > 0) {
             metricsFlusher.ingest(capped);
-            for (const runId of new Set(capped.map((p) => p.runId))) {
-              ingestTracker.touch(runId);
-            }
+            const runIds = [...new Set(capped.map((p) => p.runId).filter(Boolean))];
+            for (const runId of runIds) ingestTracker.touch(runId);
+            logger.debug(
+              { points: capped.length, runs: runIds.length, runId: runIds[0] },
+              "[ws] ingest batch",
+            );
             if (metricsFlusher.shouldSlowDown()) {
               try {
                 ws.send(

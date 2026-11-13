@@ -97,8 +97,13 @@ export class MetricsFlusher {
       clearInterval(this.lossTimer);
       this.lossTimer = null;
     }
-    await Promise.all(this.shards.map((_, i) => this.flushShard(i, false)));
+    await this.flush(false);
     await this.applyRunLossAccounting();
+  }
+
+  /** Drain all buffered points to the database (best-effort). */
+  async flush(requeueOnError = true): Promise<void> {
+    await Promise.all(this.shards.map((_, i) => this.flushShard(i, requeueOnError)));
   }
 
   /** O(1) per point — called by all ingestion paths. */

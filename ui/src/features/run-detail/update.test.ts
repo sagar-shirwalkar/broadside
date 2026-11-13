@@ -1,25 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { update } from "./update.js";
-import type { State } from "./types.js";
+import { initialState, type State } from "./types.js";
 
 function baseState(): State {
-  return {
-    runId: "run-1",
-    run: null,
-    missing: false,
-    rows: [],
-    rawByPanel: new Map(),
-    endpoint: "",
-    granularity: "1m",
-    zoomByPanel: new Map(),
-    previous: null,
-    loading: true,
-    annotations: [],
-    endpointSeries: [],
-    endpointsLoaded: false,
-    confirmOpen: false,
-    confirmBusy: false,
-  } as State;
+  return { ...initialState("run-1") };
 }
 
 describe("run-detail update", () => {
@@ -34,7 +18,10 @@ describe("run-detail update", () => {
   });
 
   it("sets endpoint and clears zoom state", () => {
-    const state = { ...baseState(), zoomByPanel: new Map([["rps", { from: 1, to: 2 }]]) };
+    const state = {
+      ...baseState(),
+      zoomByPanel: new Map([["rps", { from: 1, to: 2 }]] as const),
+    } as State;
     const next = update(state, { type: "set_endpoint", endpoint: "/api" });
     expect(next.endpoint).toBe("/api");
     expect(next.zoomByPanel.size).toBe(0);

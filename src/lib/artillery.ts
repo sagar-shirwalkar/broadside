@@ -2,6 +2,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { sql } from "../db/client.js";
 import { logger } from "../logger.js";
 import { config } from "../config.js";
@@ -100,10 +101,24 @@ export async function spawnArtillery(opts: SpawnOptions): Promise<void> {
 
   const tmpDir = await mkdtemp(join(tmpdir(), `artillery-${safeName(runId)}-`));
   const outputFile = join(tmpDir, "report.json");
+  const pluginCode = renderBroadsideReporterPlugin();
+  const pluginPath = join(tmpDir, "artillery-plugin-broadside-reporter.js");
+  await writeFile(pluginPath, pluginCode, "utf-8");
+  const pluginPkgDir = join(tmpDir, "node_modules", "artillery-plugin-broadside-reporter");
+  await mkdir(pluginPkgDir, { recursive: true });
+  await writeFile(join(pluginPkgDir, "index.js"), pluginCode, "utf-8");
+  await writeFile(
+    join(pluginPkgDir, "package.json"),
+    JSON.stringify({ name: "artillery-plugin-broadside-reporter", main: "index.js" }),
+    "utf-8",
+  );
+
+  const ingestUrl = resolveIngestWsUrl();
+  const effectiveScriptPath = await prepareScriptForLive(scriptPath, tmpDir);
 
   const args = [
     "run",
-    scriptPath,
+    effectiveScriptPath,
     "--output",
     outputFile,
     "--quiet",
@@ -119,9 +134,27 @@ export async function spawnArtillery(opts: SpawnOptions): Promise<void> {
     if (config.artillery.childMaxYoungGenerationMb > 0) {
       resourceLimits.maxYoungGenerationSizeMb = config.artillery.childMaxYoungGenerationMb;
     }
+    const childEnv = {
+      ...process.env,
+      ARTILLERY_DISABLE_TELEMETRY: "1",
+      BROADSIDE_RUN_ID: runId,
+      BROADSIDE_INGEST_URL: ingestUrl,
+      NODE_PATH: [tmpDir, process.env.NODE_PATH].filter(Boolean).join(":"),
+    };
+    logger.info(
+      {
+        runId,
+        argv: ["artillery", ...args],
+        ingestUrl,
+        scriptPath: effectiveScriptPath,
+        pluginPath,
+      },
+      "[artillery] spawning run (live streaming enabled)",
+    );
     proc = spawn("artillery", args, {
       stdio: ["ignore", "pipe", "pipe"],
-      env: { ...process.env, ARTILLERY_DISABLE_TELEMETRY: "1" },
+      cwd: process.cwd(),
+      env: childEnv,
       ...(Object.keys(resourceLimits).length > 0 ? { resourceLimits } : {}),
     } as any);
   } catch (err) {
@@ -140,8 +173,12 @@ export async function spawnArtillery(opts: SpawnOptions): Promise<void> {
   };
   activeRuns.set(runId, activeRun);
 
-  // Drain stderr so the child never blocks, and keep the tail for errors.
+  // Drain output so the child never blocks, keep tails for diagnostics.
   let stderr = "";
+  let stdout = "";
+  proc.stdout?.on("data", (chunk: Buffer | string) => {
+    stdout += chunk.toString();
+  });
   proc.stderr?.on("data", (chunk: Buffer | string) => {
     stderr += chunk.toString();
   });
@@ -170,7 +207,7 @@ export async function spawnArtillery(opts: SpawnOptions): Promise<void> {
   });
 
   proc.once("close", (code) => {
-    void handleClose(activeRun, code, stderr);
+    void handleClose(activeRun, code, stderr, stdout);
   });
 
   await ready;
@@ -180,6 +217,7 @@ async function handleClose(
   activeRun: ActiveRun,
   code: number | null,
   stderr: string,
+  stdout = "",
 ): Promise<void> {
   if (activeRun.settled) return;
   activeRun.settled = true;
@@ -193,10 +231,16 @@ async function handleClose(
 
     if (code === 0) {
       await processReport(activeRun.id, activeRun.outputFile);
+      if (stdout.trim() || stderr.trim()) {
+        logger.debug(
+          { runId: activeRun.id, stdout: stdout.trim().slice(-4000), stderr: stderr.trim().slice(-4000) },
+          "[artillery] child output",
+        );
+      }
     } else {
       await failRun(
         activeRun,
-        stderr.trim() || `artillery exited with code ${code}`,
+        (stderr || stdout).trim() || `artillery exited with code ${code}`,
         "artillery_exit_nonzero",
       );
     }
@@ -535,6 +579,11 @@ export async function processReport(
   const raw = await readFile(outputFile, "utf-8");
   const report = JSON.parse(raw) as ArtilleryReport;
 
+  // Ensure any late-streamed points are flushed, then replace provisional
+  // streamed metrics with the authoritative final report.
+  await metricsFlusher.flush();
+  await sql`DELETE FROM metrics WHERE run_id = ${runId}`;
+
   const points = parseReportPoints(report, runId);
   if (points.length > 0) {
     metricsFlusher.ingest(points);
@@ -620,6 +669,272 @@ async function persistReport(runId: string, raw: string): Promise<string> {
 
 function safeName(value: string): string {
   return value.replace(/[^A-Za-z0-9._-]/g, "_");
+}
+
+function resolveIngestWsUrl(): string {
+  const configured = (config.ingestUrl ?? "").trim();
+  let url = "";
+  if (configured) {
+    if (configured.startsWith("http://")) url = `ws://${configured.slice("http://".length)}`;
+    else if (configured.startsWith("https://")) url = `wss://${configured.slice("https://".length)}`;
+    else if (configured.startsWith("ws://") || configured.startsWith("wss://")) url = configured;
+    else url = configured;
+  } else if (config.serviceRole === "api") {
+    // In split deployments the API/orchestrator container cannot reach ingest on localhost.
+    throw new Error(
+      "INGEST_URL is required for SERVICE_ROLE=api to stream orchestrated run metrics (e.g. ws://ingest:3002/ws)",
+    );
+  } else {
+    const port = config.ingestPort > 0 ? config.ingestPort : config.port;
+    url = `ws://127.0.0.1:${port}`;
+  }
+  if (!/\/ws(\/|\?|$)/.test(url)) url = url.replace(/\/$/, "") + "/ws";
+  return url;
+}
+
+async function prepareScriptForLive(scriptPath: string, tmpDir: string): Promise<string> {
+  if (!/\.ya?ml$/i.test(scriptPath)) return scriptPath;
+  try {
+    const raw = await readFile(scriptPath, "utf-8");
+    const parsed = parseYaml(raw) as any;
+    if (!parsed || typeof parsed !== "object") return scriptPath;
+    parsed.config = parsed.config && typeof parsed.config === "object" ? parsed.config : {};
+    if (parsed.config.statsInterval == null) parsed.config.statsInterval = 1;
+    parsed.config.plugins =
+      parsed.config.plugins && typeof parsed.config.plugins === "object"
+        ? parsed.config.plugins
+        : {};
+    // Register temp live-stream reporter plugin (resolved via NODE_PATH in tmpDir).
+    parsed.config.plugins["broadside-reporter"] = {
+      ...(parsed.config.plugins["broadside-reporter"] ?? {}),
+    };
+    const outPath = join(tmpDir, "script.live.yml");
+    await writeFile(outPath, stringifyYaml(parsed), "utf-8");
+    return outPath;
+  } catch {
+    return scriptPath;
+  }
+}
+
+function renderBroadsideReporterPlugin(): string {
+  let wsRequireExpr = "require('ws')";
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    wsRequireExpr = `require(${JSON.stringify(require.resolve("ws"))})`;
+  } catch {
+    wsRequireExpr = `(function(){ try { return require('ws'); } catch (e) { return require(require.resolve('ws', { paths: [process.cwd()] })); } })()`;
+  }
+
+  return `'use strict';
+console.error('[broadside-reporter] module loaded', __filename);
+const WebSocket = ${wsRequireExpr};
+
+const DEFAULT_METRICS_NAMESPACE = 'plugins.metrics-by-endpoint';
+const DEFAULT_INTERVAL_SECONDS = 10;
+const ENGINE_METRIC_PREFIXES = new Set(['http','socketio','websocket','browser','vusers']);
+
+function finiteNumber(v){ return typeof v === 'number' && Number.isFinite(v) ? v : undefined; }
+function histogramMap(report){
+  const h = report && report.histograms;
+  if (h && Object.keys(h).length > 0) return h;
+  return (report && report.summaries) || h || {};
+}
+function reportTimestamp(report){
+  const value = report && (report.timestamp ?? report.period);
+  if (value == null) return null;
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
+  if (typeof value === 'number') return Number.isNaN(value) ? null : new Date(value);
+  const numeric = Number(value);
+  const date = Number.isFinite(numeric) ? new Date(numeric) : new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+function parseResponseTimeKey(key){
+  const marker = '.response_time.';
+  const index = key.indexOf(marker);
+  if (index <= 0) return null;
+  const namespace = key.slice(0, index);
+  const endpoint = key.slice(index + marker.length);
+  if (!endpoint || ENGINE_METRIC_PREFIXES.has(namespace)) return null;
+  return { namespace, endpoint };
+}
+function addCounter(endpoints, name, field, value){
+  const existing = endpoints.get(name);
+  if (existing) { existing[field] += value; return; }
+  endpoints.set(name, { name, histogram: undefined, codes: field==='codes'?value:0, errors: field==='errors'?value:0 });
+}
+function collectEndpoints(report){
+  const endpoints = new Map();
+  const namespaces = new Set([DEFAULT_METRICS_NAMESPACE]);
+  for (const [key, histogram] of Object.entries(histogramMap(report))){
+    const parsed = parseResponseTimeKey(key);
+    if (!parsed) continue;
+    namespaces.add(parsed.namespace);
+    const existing = endpoints.get(parsed.endpoint);
+    if (existing) existing.histogram = histogram;
+    else endpoints.set(parsed.endpoint, { name: parsed.endpoint, histogram, codes: 0, errors: 0 });
+  }
+  for (const [key, value] of Object.entries((report && report.counters) || {})){
+    for (const namespace of namespaces){
+      if (!key.startsWith(namespace + '.')) continue;
+      const rest = key.slice(namespace.length + 1);
+      const codeMatch = rest.match(/^(.*)\\.codes\\.(\\d+)$/);
+      if (codeMatch){ addCounter(endpoints, codeMatch[1], 'codes', value); continue; }
+      const errorMatch = rest.match(/^(.*)\\.errors\\.(.+)$/);
+      if (errorMatch){ addCounter(endpoints, errorMatch[1], 'errors', value); }
+    }
+  }
+  return endpoints;
+}
+function toPoint(time, runId, endpoint, rps, hist, errorRate, extra){
+  const p = {
+    time_ms: time.getTime(),
+    run_id: runId,
+    endpoint: endpoint || '',
+    rps: rps || 0,
+    p50: (hist && hist.p50) || 0,
+    p95: (hist && hist.p95) || 0,
+    p99: (hist && hist.p99) || 0,
+    error_rate: errorRate || 0,
+  };
+  if (extra){
+    for (const k of Object.keys(extra)) { if (extra[k] !== undefined) p[k] = extra[k]; }
+  }
+  if (hist){
+    if (hist.min != null) p.hist_min = hist.min;
+    if (hist.max != null) p.hist_max = hist.max;
+    if (hist.p75 != null) p.hist_p75 = hist.p75;
+    if (hist.p90 != null) p.hist_p90 = hist.p90;
+    if (hist.p999 != null) p.hist_p999 = hist.p999;
+  }
+  return p;
+}
+function transformStats(runId, stats, state){
+  const time = reportTimestamp(stats) || new Date();
+  const counters = (stats && stats.counters) || {};
+  const rates = (stats && stats.rates) || {};
+  const histograms = histogramMap(stats);
+  const prev = state.lastTime;
+  state.lastTime = time;
+  const interval = prev ? Math.max((time.getTime() - prev.getTime()) / 1000, 0) : DEFAULT_INTERVAL_SECONDS;
+  const effectiveInterval = interval > 0 ? interval : DEFAULT_INTERVAL_SECONDS;
+
+  const requestCount = counters['http.requests'] ?? counters['http.responses'] ?? 0;
+  const measuredRate = finiteNumber(rates['http.request_rate']);
+  const aggregateRps = measuredRate ?? (effectiveInterval > 0 ? requestCount / effectiveInterval : 0);
+  const responseTime = histograms['http.response_time'];
+  const totalVUsers = counters['vusers.created'] ?? 1;
+  const failedVUsers = counters['vusers.failed'] ?? 0;
+
+  const points = [];
+  points.push(toPoint(time, runId, '', aggregateRps, responseTime, totalVUsers > 0 ? failedVUsers / totalVUsers : 0, {
+    vusers_started: counters['vusers.started'],
+    vusers_stopped: counters['vusers.stopped'],
+    vusers_created: counters['vusers.created'],
+    vusers_completed: counters['vusers.completed'],
+    error_count: failedVUsers,
+  }));
+
+  const endpoints = collectEndpoints(stats);
+  for (const endpoint of endpoints.values()){
+    const count = (endpoint.histogram && (endpoint.histogram.count ?? endpoint.histogram.total)) ?? endpoint.codes;
+    const rps = requestCount > 0 && aggregateRps > 0
+      ? (aggregateRps * count) / requestCount
+      : (effectiveInterval > 0 ? count / effectiveInterval : 0);
+    const requestTotal = endpoint.codes + endpoint.errors;
+    points.push(toPoint(time, runId, endpoint.name, rps, endpoint.histogram, requestTotal > 0 ? endpoint.errors / requestTotal : 0, {
+      error_count: endpoint.errors,
+    }));
+  }
+  return points;
+}
+
+class BroadsideReporter {
+  constructor(scriptOrConfig, events){
+    const cfg = scriptOrConfig && scriptOrConfig.config ? (scriptOrConfig.config.plugins && scriptOrConfig.config.plugins['broadside-reporter']) || {} : (scriptOrConfig || {});
+    this.runId = cfg.runId || process.env.BROADSIDE_RUN_ID;
+    this.ingestUrl = cfg.ingestUrl || process.env.BROADSIDE_INGEST_URL || 'ws://127.0.0.1:3000/ws';
+    if (this.ingestUrl && !/\\/ws(\\?|$)/.test(this.ingestUrl)) {
+      this.ingestUrl = this.ingestUrl.replace(/\\/$/, '') + '/ws';
+    }
+    this.ws = null;
+    this.connected = false;
+    this.buffer = [];
+    this.reconnectTimer = null;
+    this.slowdownUntil = 0;
+    this.maxBuffer = 5000;
+    this.state = { lastTime: null };
+    this.sentBatches = 0;
+    this.sentPoints = 0;
+    if (!this.runId) {
+      console.error('[broadside-reporter] missing BROADSIDE_RUN_ID, disabled');
+      return;
+    }
+    console.error('[broadside-reporter] init', JSON.stringify({ runId: this.runId, ingestUrl: this.ingestUrl }));
+    if (events && events.on){
+      events.on('stats', (stats) => this.onStats(stats));
+      events.on('done', () => this.close());
+    }
+    this.connect();
+  }
+  connect(){
+    console.error('[broadside-reporter] connecting to', this.ingestUrl);
+    try {
+      this.ws = new WebSocket(this.ingestUrl);
+    } catch (err) { console.error('[broadside-reporter] connect error', err && err.message); this.scheduleReconnect(); return; }
+    this.ws.on('open', () => { this.connected = true; console.error('[broadside-reporter] ws open'); this.flush(); });
+    this.ws.on('message', (raw) => {
+      try {
+        const ctrl = JSON.parse(raw.toString());
+        if (ctrl && ctrl.type === 'slow_down') {
+          const hz = ctrl.target_hz || 1;
+          this.slowdownUntil = Date.now() + (1000 / Math.max(1, hz)) * 2;
+        }
+      } catch {}
+    });
+    this.ws.on('close', (code) => { this.connected = false; console.error('[broadside-reporter] ws close', code); this.scheduleReconnect(); });
+    this.ws.on('error', (err) => { console.error('[broadside-reporter] ws error', err && err.message); });
+  }
+  scheduleReconnect(){
+    if (this.reconnectTimer) return;
+    this.reconnectTimer = setTimeout(() => { this.reconnectTimer = null; this.connect(); }, 2000);
+  }
+  onStats(stats){
+    if (Date.now() < this.slowdownUntil) return;
+    let points = [];
+    try { points = transformStats(this.runId, stats, this.state) || []; } catch (err) { console.error('[broadside-reporter] transform error', err && err.message); return; }
+    if (!points.length) return;
+    if (this.buffer.length + points.length > this.maxBuffer) {
+      this.buffer.splice(0, this.buffer.length + points.length - this.maxBuffer);
+    }
+    this.buffer.push(...points);
+    this.flush();
+  }
+  flush(){
+    if (!this.connected || !this.ws || this.ws.readyState !== WebSocket.OPEN || !this.buffer.length) return;
+    const batch = this.buffer.splice(0, 5000);
+    try {
+      this.ws.send(JSON.stringify({ run_id: this.runId, points: batch }));
+      this.sentBatches += 1;
+      this.sentPoints += batch.length;
+      if (this.sentBatches <= 3 || this.sentBatches % 20 === 0) {
+        console.error('[broadside-reporter] sent batch', JSON.stringify({ batches: this.sentBatches, points: this.sentPoints }));
+      }
+    }
+    catch (err) { console.error('[broadside-reporter] send error', err && err.message); this.buffer.unshift(...batch); }
+  }
+  close(){
+    try { this.flush(); } catch {}
+    try { if (this.ws) this.ws.close(); } catch {}
+    if (this.reconnectTimer) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null; }
+    console.error('[broadside-reporter] closed', JSON.stringify({ batches: this.sentBatches, points: this.sentPoints }));
+  }
+}
+
+function Plugin(script, events){ return new BroadsideReporter(script, events); }
+module.exports = { Plugin };
+module.exports.Plugin = Plugin;
+module.exports.default = Plugin;
+`;
 }
 
 // ─── Kill a running run ───
