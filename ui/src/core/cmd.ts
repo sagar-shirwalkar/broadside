@@ -1,4 +1,4 @@
-import type { Cmd } from "./types.js";
+import type { Cmd } from "./types.ts";
 
 /** Execute a command and dispatch its resulting action. */
 export function runCmd<A>(cmd: Cmd<A>, dispatch: (a: A) => void): void {

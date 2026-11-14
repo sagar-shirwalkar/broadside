@@ -6,15 +6,15 @@ import { cors } from "hono/cors";
 import { compress } from "hono/compress";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { logger, type AppEnv } from "../logger.js";
-import { config } from "../config.js";
-import { normalizeBatch } from "../lib/normalize.js";
-import { metricsFlusher } from "../lib/flusher.js";
-import { ingestTracker } from "../lib/ingest-tracker.js";
-import { createAuthMiddleware } from "./middleware/auth.js";
-import runs from "./routes/runs.js";
-import health from "./routes/health.js";
-import overview from "./routes/overview.js";
+import { logger, type AppEnv } from "../logger.ts";
+import { config } from "../config.ts";
+import { normalizeBatch } from "../lib/normalize.ts";
+import { metricsFlusher } from "../lib/flusher.ts";
+import { ingestTracker } from "../lib/ingest-tracker.ts";
+import { createAuthMiddleware } from "./middleware/auth.ts";
+import runs from "./routes/runs.ts";
+import health from "./routes/health.ts";
+import overview from "./routes/overview.ts";
 
 function registerWsIngest(app: Hono<AppEnv>): void {
   // WebSocket ingestion

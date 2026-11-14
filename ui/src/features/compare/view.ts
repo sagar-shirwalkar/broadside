@@ -1,15 +1,15 @@
 import { html, type TemplateResult } from "lit";
-import type { Cmd } from "../../core/types.js";
-import type { ChartSeries, Granularity, MetricRow, RunRow } from "../../types.js";
-import { formatDuration, formatMs, formatNumber, formatPercent, latencyClass } from "../../lib/format.js";
+import type { Cmd } from "../../core/types.ts";
+import type { ChartSeries, Granularity, MetricRow, RunRow } from "../../types.ts";
+import { formatDuration, formatMs, formatNumber, formatPercent, latencyClass } from "../../lib/format.ts";
 import {
   activeVusers, cdfFromLatest, errorCount, histogramFromLatest, tailSpread, toBucket, vusersIo, type Bucket,
-} from "../../derived-series.js";
+} from "../../derived-series.ts";
 import "../../components/select.js";
 import "../../components/chart-panel.js";
 import "../../components/skeleton.js";
-import { compareRuns, loadEndpointOptions } from "./cmds.js";
-import type { Action, State } from "./types.js";
+import { compareRuns, loadEndpointOptions } from "./cmds.ts";
+import type { Action, State } from "./types.ts";
 
 const MAX_COMPARE = 5;
 

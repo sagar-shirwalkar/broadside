@@ -1,9 +1,9 @@
-import type { Cmd } from "../core/types.js";
-import { parseHash, type Route } from "../lib/router.js";
-import { RUN_STATUS_EVENT, UNAUTHORIZED_EVENT } from "../services/api.js";
-import type { RunStatus } from "../types.js";
-import { currentTheme, toggleTheme } from "../theme.js";
-import type { AppAction } from "./types.js";
+import type { Cmd } from "../core/types.ts";
+import { parseHash, type Route } from "../lib/router.ts";
+import { RUN_STATUS_EVENT, UNAUTHORIZED_EVENT } from "../services/api.ts";
+import type { RunStatus } from "../types.ts";
+import { currentTheme, toggleTheme } from "../theme.ts";
+import type { AppAction } from "./types.ts";
 
 /** Subscribe to hash changes and global app events, dispatching actions. */
 export function startSubscriptions(): Cmd<AppAction> {

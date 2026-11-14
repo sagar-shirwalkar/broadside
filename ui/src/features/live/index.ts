@@ -1,6 +1,6 @@
 import { LitElement, css, html } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
-import { apiGet, RUN_STATUS_EVENT, sseUrl } from "../../services/api.js";
+import { apiGet, RUN_STATUS_EVENT, sseUrl } from "../../services/api.ts";
 import {
   activeVusers,
   cdfFromLatest,
@@ -9,10 +9,10 @@ import {
   tailSpread,
   toBucket,
   vusersIo,
-} from "../../derived-series.js";
-import type { ChartSeries, RawRow, RunRow } from "../../types.js";
-import { formatDuration, formatMs, formatNumber, formatPercent } from "../../lib/format.js";
-import { navigate } from "../../lib/router.js";
+} from "../../derived-series.ts";
+import type { ChartSeries, RawRow, RunRow } from "../../types.ts";
+import { formatDuration, formatMs, formatNumber, formatPercent } from "../../lib/format.ts";
+import { navigate } from "../../lib/router.ts";
 import "../../components/chart-panel.js";
 import "../../components/endpoint-select.js";
 import "../../components/skeleton.js";

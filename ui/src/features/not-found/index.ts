@@ -1,8 +1,8 @@
 import { LitElement, css } from "lit";
 import { customElement, property } from "lit/decorators.js";
-import { initialState, type Action, type State } from "./types.js";
-import { update } from "./update.js";
-import { view } from "./view.js";
+import { initialState, type Action, type State } from "./types.ts";
+import { update } from "./update.ts";
+import { view } from "./view.ts";
 
 export { initialState, update, view };
 export type { State, Action };

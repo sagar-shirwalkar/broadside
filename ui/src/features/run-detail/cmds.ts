@@ -1,8 +1,8 @@
-import type { Cmd } from "../../core/types.js";
-import { api, apiGet, ApiError } from "../../services/api.js";
-import type { ChartSeries, EndpointRow, Granularity, MetricRow, PhaseAnnotation, RawRow, RunRow } from "../../types.js";
-import { num } from "../../types.js";
-import type { Action, PanelKey } from "./types.js";
+import type { Cmd } from "../../core/types.ts";
+import { api, apiGet, ApiError } from "../../services/api.ts";
+import type { ChartSeries, EndpointRow, Granularity, MetricRow, PhaseAnnotation, RawRow, RunRow } from "../../types.ts";
+import { num } from "../../types.ts";
+import type { Action, PanelKey } from "./types.ts";
 
 const MAX_ENDPOINT_SERIES = 8;
 

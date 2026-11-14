@@ -1,6 +1,6 @@
 import { Hono } from "hono";
-import { sql } from "../../db/client.js";
-import { config } from "../../config.js";
+import { sql } from "../../db/client.ts";
+import { config } from "../../config.ts";
 
 /**
  * Overview aggregates for the dashboard's landing page.

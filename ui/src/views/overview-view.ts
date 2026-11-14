@@ -1,2 +1,2 @@
-export * from "../features/overview/index.js";
+export * from "../features/overview/index.ts";
 import "../features/overview/index.js";

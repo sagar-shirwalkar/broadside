@@ -3,11 +3,11 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
-import { sql } from "../db/client.js";
-import { logger } from "../logger.js";
-import { config } from "../config.js";
-import { metricsFlusher } from "./flusher.js";
-import type { MetricPoint } from "../types.js";
+import { sql } from "../db/client.ts";
+import { logger } from "../logger.ts";
+import { config } from "../config.ts";
+import { metricsFlusher } from "./flusher.ts";
+import type { MetricPoint } from "../types.ts";
 
 // ─── Types matching Artillery's JSON report ───
 

@@ -21,7 +21,7 @@ vi.mock("node:fs", () => ({
   existsSync: () => true,
   readFileSync: () => "<html>broadside-test-index</html>",
 }));
-vi.mock("../lib/flusher.js", () => ({
+vi.mock("../../lib/flusher.ts", () => ({
   metricsFlusher: {
     ingest: h.ingest,
     shouldSlowDown: h.shouldSlowDown,
@@ -29,13 +29,13 @@ vi.mock("../lib/flusher.js", () => ({
     stats: { buffered: 0, dropped: 0, flushed: 0 },
   },
 }));
-vi.mock("../db/client.js", () => ({
+vi.mock("../../db/client.ts", () => ({
   sql: vi.fn().mockResolvedValue([]),
 }));
-vi.mock("../logger.js", () => ({ logger: h.logger }));
+vi.mock("../../logger.ts", () => ({ logger: h.logger }));
 
 import { testClient } from "hono/testing";
-import { createApp } from "./app.js";
+import { createApp } from ".././app.ts";
 
 function websocketHandlers() {
   createApp();

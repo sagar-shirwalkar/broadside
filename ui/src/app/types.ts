@@ -1,6 +1,6 @@
-import type { Route } from "../lib/router.js";
-import type { RunStatus } from "../types.js";
-import type { Theme } from "../theme.js";
+import type { Route } from "../lib/router.ts";
+import type { RunStatus } from "../types.ts";
+import type { Theme } from "../theme.ts";
 
 export interface AppState {
   readonly route: Route;

@@ -6,7 +6,7 @@ const { postgresMock, client } = vi.hoisted(() => {
 });
 
 vi.mock("postgres", () => ({ default: postgresMock }));
-vi.mock("../config.js", () => ({
+vi.mock("../../config.ts", () => ({
   config: { databaseUrl: "postgres://user:pass@db:5432/broadside" },
 }));
 
@@ -16,7 +16,7 @@ describe("database client", () => {
     postgresMock.mockClear();
     postgresMock.mockReturnValue(client);
 
-    const { sql } = await import("./client.js");
+    const { sql } = await import(".././client.ts");
 
     expect(postgresMock).toHaveBeenCalledWith(
       "postgres://user:pass@db:5432/broadside",

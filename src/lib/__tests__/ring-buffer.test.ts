@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { RingBuffer } from "./ring-buffer.js";
+import { RingBuffer } from ".././ring-buffer.ts";
 
 describe("RingBuffer", () => {
   it("rounds capacity up to the next power of two", () => {

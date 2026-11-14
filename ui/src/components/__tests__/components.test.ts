@@ -21,7 +21,7 @@ beforeEach(() => {
 
 describe("chart-panel rendering", () => {
   it("renders the heading title (regression: native title-attribute removal must not clear heading)", async () => {
-    await import("./chart-panel.js");
+    await import(".././chart-panel.ts");
     const el = await mount<HTMLElement & { title: string }>("broadside-chart-panel", {
       title: "throughput",
       series: [],
@@ -38,7 +38,7 @@ describe("chart-panel rendering", () => {
 
 describe("kpi-card rendering", () => {
   it("renders value and does not crash on null/empty spark (regression)", async () => {
-    await import("./kpi-card.js");
+    await import(".././kpi-card.ts");
     const el = await mount<HTMLElement>("broadside-kpi-card", {
       label: "p95",
       value: "210ms",
@@ -56,7 +56,7 @@ describe("kpi-card rendering", () => {
   });
 
   it("renders a sparkline path when given enough points", async () => {
-    await import("./kpi-card.js");
+    await import(".././kpi-card.ts");
     const el = await mount<HTMLElement>("broadside-kpi-card", {
       label: "rps",
       value: "10",
@@ -71,7 +71,7 @@ describe("kpi-card rendering", () => {
 
 describe("status-dot rendering", () => {
   it("renders the requested tone and pulse state", async () => {
-    await import("./status-dot.js");
+    await import(".././status-dot.ts");
     const ok = await mount<HTMLElement>("broadside-status-dot", { tone: "ok" });
     expect(ok.shadowRoot?.querySelector(".dot-ok")).not.toBeNull();
 
@@ -85,7 +85,7 @@ describe("status-dot rendering", () => {
 
 describe("info-tip rendering", () => {
   it("renders tooltip text", async () => {
-    await import("./info-tip.js");
+    await import(".././info-tip.ts");
     const el = await mount<HTMLElement>("broadside-info-tip", {
       text: "hello tooltip",
       label: "about",

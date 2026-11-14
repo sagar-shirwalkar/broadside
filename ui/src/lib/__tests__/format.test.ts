@@ -5,7 +5,7 @@ import {
   formatPercent,
   latencyClass,
   relativeTime,
-} from "./format.js";
+} from ".././format.ts";
 
 describe("formatDuration", () => {
   it("formats milliseconds", () => {

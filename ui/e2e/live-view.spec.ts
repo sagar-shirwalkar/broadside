@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { signIn } from "./fixtures/helpers.js";
+import { signIn } from "./fixtures/helpers.ts";
 
 test("live view: streams and shows completion with back navigation", async ({
   page,

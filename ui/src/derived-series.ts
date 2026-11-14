@@ -1,5 +1,5 @@
-import type { ChartPoint, ChartSeries } from "./types.js";
-import { cumulative, num } from "./types.js";
+import type { ChartPoint, ChartSeries } from "./types.ts";
+import { cumulative, num } from "./types.ts";
 
 /**
  * Shared derived series for the metric charts (run detail + live view):

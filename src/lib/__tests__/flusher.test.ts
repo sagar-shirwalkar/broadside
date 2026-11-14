@@ -6,7 +6,7 @@ const h = vi.hoisted(() => ({
 }));
 const { sqlMock } = h;
 
-vi.mock("../config.js", () => ({
+vi.mock("../../config.ts", () => ({
   config: {
     ring: {
       capacity: 4,
@@ -17,11 +17,11 @@ vi.mock("../config.js", () => ({
     },
   },
 }));
-vi.mock("../db/client.js", () => ({ sql: h.sqlMock }));
-vi.mock("../logger.js", () => ({ logger: h.logger }));
+vi.mock("../../db/client.ts", () => ({ sql: h.sqlMock }));
+vi.mock("../../logger.ts", () => ({ logger: h.logger }));
 
-import { MetricsFlusher } from "./flusher.js";
-import type { MetricPoint } from "../types.js";
+import { MetricsFlusher } from ".././flusher.ts";
+import type { MetricPoint } from "../../types.ts";
 
 function point(overrides: Partial<MetricPoint> = {}): MetricPoint {
   return {

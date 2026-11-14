@@ -1,5 +1,5 @@
-import { sql } from "../db/client.js";
-import { logger } from "../logger.js";
+import { sql } from "../db/client.ts";
+import { logger } from "../logger.ts";
 
 interface RunIngestState {
   lastSeenAt: number;

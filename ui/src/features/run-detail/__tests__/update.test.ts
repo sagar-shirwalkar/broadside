@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { update } from "./update.js";
-import { initialState, type State } from "./types.js";
+import { update } from ".././update.ts";
+import { initialState, type State } from ".././types.ts";
 
 function baseState(): State {
   return { ...initialState("run-1") };

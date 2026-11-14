@@ -1,5 +1,5 @@
 import { expect, type Page } from "@playwright/test";
-import { stubApi } from "./api.js";
+import { stubApi } from "./api.ts";
 
 export async function signIn(
   page: Page,

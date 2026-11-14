@@ -1,8 +1,8 @@
 import { Hono } from "hono";
-import { sql } from "../../db/client.js";
-import { config } from "../../config.js";
-import { metricsFlusher } from "../../lib/flusher.js";
-import { logger } from "../../logger.js";
+import { sql } from "../../db/client.ts";
+import { config } from "../../config.ts";
+import { metricsFlusher } from "../../lib/flusher.ts";
+import { logger } from "../../logger.ts";
 
 const health = new Hono();
 

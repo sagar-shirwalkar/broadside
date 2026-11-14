@@ -1,8 +1,8 @@
-import { RingBuffer } from "./ring-buffer.js";
-import { config } from "../config.js";
-import { sql } from "../db/client.js";
-import { logger } from "../logger.js";
-import type { MetricPoint } from "../types.js";
+import { RingBuffer } from "./ring-buffer.ts";
+import { config } from "../config.ts";
+import { sql } from "../db/client.ts";
+import { logger } from "../logger.ts";
+import type { MetricPoint } from "../types.ts";
 
 interface Shard {
   ring: RingBuffer<MetricPoint>;

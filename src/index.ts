@@ -3,14 +3,14 @@ import { WebSocketServer } from "ws";
 import * as http2 from "node:http2";
 import type { Server as HttpServer } from "node:http";
 import { connectNodeAdapter } from "@connectrpc/connect-node";
-import { createApp, createIngestApp } from "./server/app.js";
-import { routes as connectRoutes } from "./server/grpc.js";
-import { startKafkaConsumer, stopKafkaConsumer } from "./server/kafka.js";
-import { metricsFlusher } from "./lib/flusher.js";
-import { killAllRuns } from "./lib/artillery.js";
-import { ingestTracker } from "./lib/ingest-tracker.js";
-import { config } from "./config.js";
-import { logger } from "./logger.js";
+import { createApp, createIngestApp } from "./server/app.ts";
+import { routes as connectRoutes } from "./server/grpc.ts";
+import { startKafkaConsumer, stopKafkaConsumer } from "./server/kafka.ts";
+import { metricsFlusher } from "./lib/flusher.ts";
+import { killAllRuns } from "./lib/artillery.ts";
+import { ingestTracker } from "./lib/ingest-tracker.ts";
+import { config } from "./config.ts";
+import { logger } from "./logger.ts";
 
 function tuneHttpServer(server: HttpServer): void {
   server.keepAliveTimeout = config.server.keepAliveTimeoutMs;

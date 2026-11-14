@@ -1,6 +1,6 @@
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
-import { normalizeBatch, normalizePoint } from "./normalize.js";
+import { normalizeBatch, normalizePoint } from ".././normalize.ts";
 
 /**
  * Property-based fuzz suite for the normalize boundary — the repo's

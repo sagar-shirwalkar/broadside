@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { stubApi } from "./fixtures/api.js";
+import { stubApi } from "./fixtures/api.ts";
 
 test("login: a 401 shows the login page and a token unlocks the app", async ({
   page,

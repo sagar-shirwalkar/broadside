@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { signIn } from "./fixtures/helpers.js";
+import { signIn } from "./fixtures/helpers.ts";
 
 test("compare: selecting two runs renders charts and a KPI table", async ({
   page,

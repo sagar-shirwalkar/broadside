@@ -7,7 +7,7 @@ import {
   ApiError,
   RUN_STATUS_EVENT,
   sseUrl,
-} from "../../services/api.js";
+} from "../../services/api.ts";
 import type {
   ChartPoint,
   ChartSeries,
@@ -17,8 +17,8 @@ import type {
   PhaseAnnotation,
   RawRow,
   RunRow,
-} from "../../types.js";
-import { num } from "../../types.js";
+} from "../../types.ts";
+import { num } from "../../types.ts";
 import {
   activeVusers,
   cdfFromLatest,
@@ -27,15 +27,15 @@ import {
   tailSpread,
   toBucket,
   vusersIo,
-} from "../../derived-series.js";
-import { decimateForRender } from "../../lib/lttb.js";
+} from "../../derived-series.ts";
+import { decimateForRender } from "../../lib/lttb.ts";
 import {
   formatDuration,
   formatMs,
   formatNumber,
   formatPercent,
-} from "../../lib/format.js";
-import { navigate } from "../../lib/router.js";
+} from "../../lib/format.ts";
+import { navigate } from "../../lib/router.ts";
 import "../../components/kpi-card.js";
 import "../../components/chart-panel.js";
 import "../../components/endpoint-select.js";

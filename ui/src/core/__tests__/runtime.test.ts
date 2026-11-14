@@ -18,7 +18,7 @@ const h = vi.hoisted(() => {
 
 vi.mock("lit", () => ({ LitElement: h.MockLitElement }));
 
-import { createTeaComponent } from "./runtime.js";
+import { createTeaComponent } from ".././runtime.ts";
 
 describe("createTeaComponent", () => {
   beforeEach(() => {

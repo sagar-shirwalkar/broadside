@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { decimateForRender, lttb, RENDER_POINT_CAP } from "./lttb.js";
-import type { ChartPoint } from "../types.js";
+import { decimateForRender, lttb, RENDER_POINT_CAP } from ".././lttb.ts";
+import type { ChartPoint } from "../../types.ts";
 
 function series(n: number): ChartPoint[] {
   return Array.from({ length: n }, (_, i) => ({

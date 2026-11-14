@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { signIn } from "./fixtures/helpers.js";
+import { signIn } from "./fixtures/helpers.ts";
 
 test("run list: nav and rows render status with delete action", async ({ page }) => {
   await signIn(page);

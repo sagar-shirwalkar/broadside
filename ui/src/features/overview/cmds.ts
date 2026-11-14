@@ -1,6 +1,6 @@
-import type { Cmd } from "../../core/types.js";
-import { apiGet } from "../../services/api.js";
-import type { Action, OverviewData } from "./types.js";
+import type { Cmd } from "../../core/types.ts";
+import { apiGet } from "../../services/api.ts";
+import type { Action, OverviewData } from "./types.ts";
 
 export function loadOverview(trendDays: string, frequency: string): Cmd<Action> {
   return async () => {

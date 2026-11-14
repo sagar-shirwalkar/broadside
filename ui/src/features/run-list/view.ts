@@ -1,14 +1,14 @@
 import { html, type TemplateResult } from "lit";
-import type { Cmd } from "../../core/types.js";
-import type { RunRow, RunStatus } from "../../types.js";
-import { formatDuration, formatMs, formatNumber, formatPercent, latencyClass, relativeTime } from "../../lib/format.js";
-import { navigate } from "../../lib/router.js";
+import type { Cmd } from "../../core/types.ts";
+import type { RunRow, RunStatus } from "../../types.ts";
+import { formatDuration, formatMs, formatNumber, formatPercent, latencyClass, relativeTime } from "../../lib/format.ts";
+import { navigate } from "../../lib/router.ts";
 import "../../components/skeleton.js";
 import "../../components/confirm-dialog.js";
 import "../../components/status-dot.js";
 import "../../components/select.js";
-import { deleteRun, loadRuns } from "./cmds.js";
-import type { Action, State } from "./types.js";
+import { deleteRun, loadRuns } from "./cmds.ts";
+import type { Action, State } from "./types.ts";
 
 const PAGE_SIZES = [25, 50, 100];
 

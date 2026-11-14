@@ -1,6 +1,6 @@
 import { LitElement, css, html } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
-import { api, ApiError } from "../../services/api.js";
+import { api, ApiError } from "../../services/api.ts";
 
 export interface RunStarted {
   id: string;

@@ -6,7 +6,7 @@ import {
   nearestTime,
   niceTicks,
   tickStep,
-} from "./chart-svg.js";
+} from ".././chart-svg.ts";
 
 describe("linScale", () => {
   it("maps domain onto range and inverts", () => {

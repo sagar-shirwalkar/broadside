@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { signIn } from "./fixtures/helpers.js";
+import { signIn } from "./fixtures/helpers.ts";
 
 test("overview: shows SLO strip, panels, recent runs and regression link", async ({
   page,

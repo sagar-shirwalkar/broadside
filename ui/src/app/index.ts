@@ -1,12 +1,12 @@
 import { LitElement, css } from "lit";
 import { customElement } from "lit/decorators.js";
-import { parseHash } from "../lib/router.js";
-import { RUN_STATUS_EVENT, UNAUTHORIZED_EVENT } from "../services/api.js";
-import type { RunStatus } from "../types.js";
-import { applyTheme, currentTheme, toggleTheme } from "../theme.js";
-import type { AppAction, AppState } from "./types.js";
-import { update } from "./update.js";
-import { view } from "./view.js";
+import { parseHash } from "../lib/router.ts";
+import { RUN_STATUS_EVENT, UNAUTHORIZED_EVENT } from "../services/api.ts";
+import type { RunStatus } from "../types.ts";
+import { applyTheme, currentTheme, toggleTheme } from "../theme.ts";
+import type { AppAction, AppState } from "./types.ts";
+import { update } from "./update.ts";
+import { view } from "./view.ts";
 
 const initialState = (): AppState => ({
   route: parseHash(window.location.hash),

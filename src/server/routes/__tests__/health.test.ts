@@ -6,14 +6,14 @@ const h = vi.hoisted(() => ({
   stats: { buffered: 7, dropped: 2, flushed: 42 },
 }));
 
-vi.mock("../../lib/flusher.js", () => ({
+vi.mock("../../../lib/flusher.ts", () => ({
   metricsFlusher: { stats: h.stats },
 }));
-vi.mock("../../db/client.js", () => ({ sql: h.sql }));
-vi.mock("../../logger.js", () => ({ logger: h.logger }));
+vi.mock("../../../db/client.ts", () => ({ sql: h.sql }));
+vi.mock("../../../logger.ts", () => ({ logger: h.logger }));
 
 import { testClient } from "hono/testing";
-import health from "./health.js";
+import health from ".././health.ts";
 
 describe("health route", () => {
   beforeEach(() => {

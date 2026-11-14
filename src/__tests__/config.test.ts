@@ -49,7 +49,7 @@ describe("config", () => {
   });
 
   it("applies defaults when environment variables are absent", async () => {
-    const { config } = await import("./config.js");
+    const { config } = await import(".././config.ts");
 
     expect(config).toEqual({
       port: 3000,
@@ -140,7 +140,7 @@ describe("config", () => {
     process.env.SLO_WINDOW_RUNS = "50";
     process.env.SLO_REGRESSION_DELTA = "1.5";
 
-    const { config } = await import("./config.js");
+    const { config } = await import(".././config.ts");
 
     expect(config).toEqual({
       port: 4000,

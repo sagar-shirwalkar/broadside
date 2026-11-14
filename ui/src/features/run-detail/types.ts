@@ -6,7 +6,7 @@ import type {
   PhaseAnnotation,
   RawRow,
   RunRow,
-} from "../../types.js";
+} from "../../types.ts";
 
 export type PanelKey = "rps" | "latency" | "errors" | "volume";
 export type ZoomRange = { from: number; to: number } | null;

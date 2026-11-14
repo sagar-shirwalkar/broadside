@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { runCmd } from "./cmd.js";
+import { runCmd } from ".././cmd.ts";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;

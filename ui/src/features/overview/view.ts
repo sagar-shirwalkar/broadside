@@ -1,15 +1,15 @@
 import { html, type TemplateResult } from "lit";
-import { navigate } from "../../lib/router.js";
-import type { ChartPoint, ChartSeries } from "../../types.js";
-import type { Cmd } from "../../core/types.js";
+import { navigate } from "../../lib/router.ts";
+import type { ChartPoint, ChartSeries } from "../../types.ts";
+import type { Cmd } from "../../core/types.ts";
 import "../../components/line-chart.js";
 import "../../components/kpi-card.js";
 import "../../components/chart-panel.js";
 import "../../components/info-tip.js";
 import "../../components/status-dot.js";
 import "../../components/select.js";
-import { loadOverview } from "./cmds.js";
-import type { Action, RecentRun, Regression, SloEntry, State, TrendPoint, WorstEndpoint } from "./types.js";
+import { loadOverview } from "./cmds.ts";
+import type { Action, RecentRun, Regression, SloEntry, State, TrendPoint, WorstEndpoint } from "./types.ts";
 
 const TREND_OPTIONS = [
   { value: "1", label: "1 day" },

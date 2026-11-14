@@ -1,4 +1,4 @@
-import type { ChartPoint } from "../types.js";
+import type { ChartPoint } from "../types.ts";
 
 /**
  * LTTB (Largest-Triangle-Three-Buckets) decimation for long raw series.

@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { signIn } from "./fixtures/helpers.js";
+import { signIn } from "./fixtures/helpers.ts";
 
 test("run detail: KPI cards, charts, and destructive action by run state", async ({
   page,

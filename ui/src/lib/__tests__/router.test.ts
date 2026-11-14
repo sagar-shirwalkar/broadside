@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseHash } from "./router.js";
+import { parseHash } from ".././router.ts";
 
 describe("parseHash", () => {
   it("maps the root hash to the overview", () => {

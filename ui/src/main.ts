@@ -1,7 +1,7 @@
 import "./styles/index.css";
 import "./app/index.js";
-import { adoptTokenFromUrl } from "./services/api.js";
-import { initTheme } from "./theme.js";
+import { adoptTokenFromUrl } from "./services/api.ts";
+import { initTheme } from "./theme.ts";
 
 adoptTokenFromUrl();
 initTheme();

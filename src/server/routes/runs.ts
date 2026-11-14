@@ -1,16 +1,16 @@
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { parse as parseYaml } from "yaml";
-import { sql } from "../../db/client.js";
-import { logger } from "../../logger.js";
+import { sql } from "../../db/client.ts";
+import { logger } from "../../logger.ts";
 import {
   spawnArtillery,
   killRun,
   isRunActive,
   activeRunCount,
-} from "../../lib/artillery.js";
-import { config } from "../../config.js";
-import type { PhaseAnnotation } from "../../types.js";
+} from "../../lib/artillery.ts";
+import { config } from "../../config.ts";
+import type { PhaseAnnotation } from "../../types.ts";
 
 const runs = new Hono();
 

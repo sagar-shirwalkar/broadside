@@ -1,5 +1,5 @@
 import * as z from "@zod/mini";
-import type { MetricPoint } from "../types.js";
+import type { MetricPoint } from "../types.ts";
 
 /**
  * Runtime validation for the single untrusted ingress point.
