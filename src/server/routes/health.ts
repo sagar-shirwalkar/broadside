@@ -37,8 +37,8 @@ async function probeIngest(): Promise<"ok" | "error"> {
   if (config.serviceRole === "ingest") return "ok";
 
   const url = deriveIngestHealthUrl();
-  // No separate ingest endpoint configured: treat ingest as co-located/healthy in this process.
-  if (!url) return "ok";
+  // No separate ingest endpoint configured: co-located in `all`, but missing in split API role.
+  if (!url) return config.serviceRole === "api" ? "error" : "ok";
 
   // Avoid probing self when pointing to local listener in same process.
   try {

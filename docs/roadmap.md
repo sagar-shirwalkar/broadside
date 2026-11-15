@@ -3,7 +3,7 @@
 ## Known limitations
 
 - **Dashboard testing depth:** covered by Vitest unit tests and Playwright E2E scenarios with a stubbed API; chart/SVG rendering is not pixel-asserted and very long metric series are not windowed/virtualized.
-- **Orchestrated run streaming:** `GET /api/runs/:id/live` streams points once the flusher writes them, which works well for WS/gRPC/Kafka-fed runs. Runs started via `POST /api/runs` still parse the Artillery report at process exit, so their live stream stays quiet until completion. A crash before report processing can lose an orchestrated run's metrics.
+- **Orchestrated run streaming:** `POST /api/runs` streams live stats to ingest via a per-run Artillery reporter plugin (`-p`) and the UI merges `/api/runs/:id/live` (SSE) while a run is `running`, then reloads authoritative CAGG-backed metrics on completion (streamed provisional rows are replaced by the final report). In split deployments the orchestrator needs `INGEST_URL` (and the ingest service reachable); a crash before report processing/reconciliation can still lose or leave incomplete orchestrated-run metrics.
 - **Percentile approximations in coarse rollups:** `metrics_1h` and `metrics_1d` aggregate already-aggregated percentiles with `avg(...)`; they are approximations, not recomputed percentiles from raw data.
 - **Docker Compose networking:** the default stack publishes REST/WS/UI (`3000`) and the ingest service port, but does not publish the gRPC port (`3001`).
 - **Authentication scope:** authentication is an opt-in shared Bearer token (`API_TOKEN`, disabled by default) for REST/SSE and `/ws`; the gRPC port has no token check. See [operations/security.md](operations/security.md).
@@ -13,7 +13,7 @@
 ## Planned work
 
 - [ ] Harden the dashboard: chart/rendering tests, windowing/virtualization for very long metric series.
-- [ ] Stream orchestrated Artillery metrics live instead of waiting for the final report.
+- [ ] Improve orchestrated run durability (reconcile/recover if the orchestrator or ingest path crashes before final report processing).
 - [ ] Make retention, compression, and refresh policies configurable.
 - [ ] Publish/document gRPC exposure patterns in Docker Compose and production deployments.
 - [ ] Extend Bearer authentication to the gRPC port, or document a recommended reverse-proxy/TLS setup that covers it.

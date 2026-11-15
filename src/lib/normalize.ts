@@ -1,4 +1,5 @@
 import * as z from "@zod/mini";
+import { Either } from "@broadside/fp/either";
 import type { MetricPoint } from "../types.ts";
 
 /**
@@ -7,12 +8,10 @@ import type { MetricPoint } from "../types.ts";
  * WebSocket (and, later, Kafka) consumers hand their raw JSON payloads
  * to {@link normalizeBatch} — this module is the only place untrusted
  * JSON is parsed into {@link MetricPoint}. Validation fails closed:
- * malformed shapes throw a plain {@link TypeError} ("not-an-object"
- * messages included), which the WS handler converts into a
- * `"invalid message"` reply instead of ingesting NaN or wrongly-typed
- * values. Aliasing (snake_case *or* camelCase) and numeric-string
- * coercion remain part of the accepted wire contract and are enforced,
- * not re-litigated, here.
+ * malformed shapes return a `Left<NormalizeError>` (batch boundary),
+ * which callers fold once to decide accept/drop with reason. Aliasing
+ * (snake_case *or* camelCase) and numeric-string coercion remain part of
+ * the accepted wire contract and are enforced, not re-litigated, here.
  *
  * Implementation notes:
  * - Schemas are module-level constants so per-message cost is a single
@@ -30,6 +29,11 @@ import type { MetricPoint } from "../types.ts";
  *   "not supplied" downstream. Unknown keys are stripped by the
  *   object schema — extra fields never reach the flusher.
  */
+
+export interface NormalizeError {
+  readonly message: string;
+  readonly cause?: unknown;
+}
 
 /**
  * Optional number that still accepts numeric strings (`"1.5"` → 1.5).
@@ -264,25 +268,26 @@ export function normalizePoint(raw: unknown): MetricPoint {
  *
  * The batch-level `run_id`/`runId` is inherited by points that omit
  * their own, so one envelope field can cover a run's whole batch.
- * Validation runs before any ingestion: `points` items are each
- * parsed (and once only) by {@link normalizePoint}, while the envelope
- * is parsed by {@link parseBatchInput}. Over-cap batches are still
- * validated in full — the caller's `INGEST_MAX_BATCH_POINTS` slice
- * decides how much of a *valid* message reaches the flusher.
- *
- * @param raw - untrusted envelope object. Without a `points` array
- *   the whole object is treated as one point.
- * @returns parsed {@link MetricPoint} objects with `runId` filled in
- *   from the envelope when a point omits it.
- * @throws {TypeError} when the envelope or any point fails validation.
+ * Validation fails closed at the batch boundary: malformed envelope/points
+ * return `Left<NormalizeError>` so callers can fold once to decide
+ * accept/drop with reason (no throw across the ingest boundary).
  */
-export function normalizeBatch(raw: unknown): MetricPoint[] {
-  const batch = parseBatchInput(raw);
-  const runId = batch.run_id ?? batch.runId ?? "";
-  const rawPoints: unknown[] = batch.points ?? [raw];
-  return rawPoints.map((p) => {
-    const point = toMetricPoint(parsePointInput(p, "point"));
-    if (!point.runId) point.runId = runId;
-    return point;
-  });
+export function normalizeBatch(
+  raw: unknown,
+): Either<NormalizeError, MetricPoint[]> {
+  try {
+    const batch = parseBatchInput(raw);
+    const runId = batch.run_id ?? batch.runId ?? "";
+    const rawPoints: unknown[] = batch.points ?? [raw];
+    const points = rawPoints.map((p) => {
+      const point = toMetricPoint(parsePointInput(p, "point"));
+      if (!point.runId) point.runId = runId;
+      return point;
+    });
+    return Either.right(points);
+  } catch (err) {
+    const message =
+      err instanceof TypeError ? err.message : "invalid ingest payload";
+    return Either.left({ message, cause: err });
+  }
 }

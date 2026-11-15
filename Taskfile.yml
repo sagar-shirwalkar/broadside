@@ -44,15 +44,27 @@ tasks:
     deps: ["build:server", "build:ui"]
     cmds: []
 
+  fp:build:
+    desc: "Build @broadside/fp"
+    cmds:
+      - cd packages/fp && pnpm build
+    sources:
+      - "packages/fp/**/*.ts"
+      - "packages/fp/tsconfig.json"
+      - "packages/fp/package.json"
+    generates:
+      - "packages/fp/dist/**"
+
   build:server:
     internal: true
-    deps: ["proto"]
+    deps: ["proto", "fp:build"]
     cmds:
       - pnpm build
     sources:
       - "src/**/*.ts"
       - "proto/**/*.proto"
       - "tsconfig.json"
+      - "packages/fp/dist/**"
     generates:
       - "dist/**"
 

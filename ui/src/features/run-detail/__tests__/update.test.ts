@@ -13,7 +13,8 @@ describe("run-detail update", () => {
       type: "run_loaded",
       run: { id: "run-1", duration_ms: 60_000, started_at: "2026-01-01T00:00:00Z" } as any,
     });
-    expect(next.run?.id).toBe("run-1");
+    expect(next.run.isJust()).toBe(true);
+    expect(next.run.toNullable()?.id).toBe("run-1");
     expect(next.granularity).toBe("10s");
   });
 
@@ -31,9 +32,9 @@ describe("run-detail update", () => {
   it("marks missing and loading transitions", () => {
     let state = update(baseState(), { type: "load_started" });
     expect(state.loading).toBe(true);
-    expect(state.missing).toBe(false);
+    expect(state.run.isNothing()).toBe(true);
     state = update(state, { type: "missing" });
-    expect(state.missing).toBe(true);
+    expect(state.run.isNothing()).toBe(true);
     state = update(state, { type: "loading_done" });
     expect(state.loading).toBe(false);
   });

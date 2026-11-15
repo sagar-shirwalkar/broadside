@@ -14,6 +14,7 @@ const envKeys = [
   "SERVER_HEADERS_TIMEOUT_MS",
   "SERVER_REQUEST_TIMEOUT_MS",
   "SERVER_MAX_REQUESTS_PER_SOCKET",
+  "SERVER_MAX_CONNECTIONS",
   "ARTILLERY_REPORT_DIR",
   "ARTILLERY_MAX_CONCURRENT",
   "ARTILLERY_CHILD_MAX_OLD_MB",
@@ -66,6 +67,7 @@ describe("config", () => {
         headersTimeoutMs: 66000,
         requestTimeoutMs: 120000,
         maxRequestsPerSocket: 1000,
+        maxConnections: 0,
       },
       artillery: {
         reportDir: "data/reports",
@@ -119,6 +121,7 @@ describe("config", () => {
     process.env.SERVER_HEADERS_TIMEOUT_MS = "71000";
     process.env.SERVER_REQUEST_TIMEOUT_MS = "130000";
     process.env.SERVER_MAX_REQUESTS_PER_SOCKET = "500";
+    process.env.SERVER_MAX_CONNECTIONS = "2000";
     process.env.ARTILLERY_REPORT_DIR = "/var/lib/broadside/reports";
     process.env.ARTILLERY_MAX_CONCURRENT = "2";
     process.env.ARTILLERY_CHILD_MAX_OLD_MB = "512";
@@ -157,6 +160,7 @@ describe("config", () => {
         headersTimeoutMs: 71000,
         requestTimeoutMs: 130000,
         maxRequestsPerSocket: 500,
+        maxConnections: 2000,
       },
       artillery: {
         reportDir: "/var/lib/broadside/reports",

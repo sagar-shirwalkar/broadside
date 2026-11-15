@@ -141,7 +141,7 @@ describe("createApp", () => {
 
     expect(h.ingest).not.toHaveBeenCalled();
     expect(ws.send).toHaveBeenCalledWith(
-      JSON.stringify({ error: "invalid message" }),
+      expect.stringContaining('"error":"invalid message"'),
     );
   });
 

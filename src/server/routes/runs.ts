@@ -1,6 +1,8 @@
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { parse as parseYaml } from "yaml";
+import { Either } from "@broadside/fp/either";
+import { Maybe } from "@broadside/fp/maybe";
 import { sql } from "../../db/client.ts";
 import { logger } from "../../logger.ts";
 import {
@@ -11,6 +13,8 @@ import {
 } from "../../lib/artillery.ts";
 import { config } from "../../config.ts";
 import type { PhaseAnnotation } from "../../types.ts";
+
+type HttpError = { status: 400 | 404 | 409 | 413 | 429 | 500; body: { error: string } };
 
 const runs = new Hono();
 
@@ -136,35 +140,51 @@ runs.get("/", async (c) => {
 
 runs.get("/compare", async (c) => {
   const ids = parseCompareIds(c.req.query("ids"));
-
-  if (ids.length === 0) {
-    return c.json({ error: "ids is required" }, 400);
-  }
-  if (ids.length < 2) {
-    return c.json({ error: "at least two ids are required" }, 400);
-  }
-  if (ids.length > MAX_COMPARE_IDS) {
-    return c.json(
-      { error: `at most ${MAX_COMPARE_IDS} ids are allowed` },
-      400,
-    );
-  }
-
   const granularity = parseGranularity(c.req.query("granularity"));
-  if (!granularity) {
-    return c.json({ error: "invalid granularity" }, 400);
+
+  const validated:
+    | { ok: true; ids: string[]; granularity: Granularity }
+    | { ok: false; err: HttpError } = (() => {
+    if (ids.length === 0) {
+      return { ok: false, err: { status: 400, body: { error: "ids is required" } } };
+    }
+    if (ids.length < 2) {
+      return { ok: false, err: { status: 400, body: { error: "at least two ids are required" } } };
+    }
+    if (ids.length > MAX_COMPARE_IDS) {
+      return {
+        ok: false,
+        err: { status: 400, body: { error: `at most ${MAX_COMPARE_IDS} ids are allowed` } },
+      };
+    }
+    if (!granularity) {
+      return { ok: false, err: { status: 400, body: { error: "invalid granularity" } } };
+    }
+    return { ok: true, ids, granularity };
+  })();
+
+  const result: Either<HttpError, { ids: string[]; granularity: Granularity }> = validated.ok
+    ? Either.right({ ids: validated.ids, granularity: validated.granularity })
+    : Either.left(validated.err);
+
+  if (result.isLeft()) {
+    return result.match({ left: (err) => c.json(err.body, err.status), right: () => c.json({}) });
   }
 
+  const { ids: validIds, granularity: validGranularity } = result.match({
+    left: () => ({ ids: [] as string[], granularity: "1m" as Granularity }),
+    right: (v) => v,
+  });
   const from = parseTime(c.req.query("from"));
   const to = parseTime(c.req.query("to"));
   const endpoint = c.req.query("endpoint");
-  const view = `metrics_${granularity}`;
+  const view = `metrics_${validGranularity}`;
 
   const runRows = await sql`
     SELECT id, started_at, duration_ms, total_requests,
            p50, p95, p99, error_rate, status, failure_reason, partial_data, dropped_points
     FROM runs
-    WHERE id = ANY(${ids})
+    WHERE id = ANY(${validIds})
     ORDER BY started_at DESC
   `;
 
@@ -174,7 +194,7 @@ runs.get("/compare", async (c) => {
                vusers_started, vusers_stopped, vusers_created, vusers_completed,
                error_count, hist_min, hist_max, hist_p75, hist_p90, hist_p999
         FROM ${sql.identifier(view)}
-        WHERE run_id = ANY(${ids})
+        WHERE run_id = ANY(${validIds})
           AND bucket >= COALESCE(${from}::timestamptz, '-infinity')
           AND bucket <= COALESCE(${to}::timestamptz, 'infinity')
           AND endpoint = ${endpoint}
@@ -185,7 +205,7 @@ runs.get("/compare", async (c) => {
                vusers_started, vusers_stopped, vusers_created, vusers_completed,
                error_count, hist_min, hist_max, hist_p75, hist_p90, hist_p999
         FROM ${sql.identifier(view)}
-        WHERE run_id = ANY(${ids})
+        WHERE run_id = ANY(${validIds})
           AND bucket >= COALESCE(${from}::timestamptz, '-infinity')
           AND bucket <= COALESCE(${to}::timestamptz, 'infinity')
         ORDER BY bucket, run_id, endpoint
@@ -201,8 +221,14 @@ runs.get("/:id", async (c) => {
   const rows = await sql`
     SELECT * FROM runs WHERE id = ${id}
   `;
-  if (rows.length === 0) return c.json({ error: "not found" }, 404);
-  return c.json(rows[0]);
+  const result = Maybe.fromNullable(rows[0]).toEither<HttpError>(() => ({
+    status: 404,
+    body: { error: "not found" },
+  }));
+  return result.match({
+    left: (err) => c.json(err.body, err.status),
+    right: (run) => c.json(run),
+  });
 });
 
 // ─── Endpoint listing ───
@@ -530,7 +556,13 @@ runs.delete("/:id", async (c) => {
   }
 
   const rows = await sql`SELECT id FROM runs WHERE id = ${id}`;
-  if (rows.length === 0) return c.json({ error: "not found" }, 404);
+  const found = Maybe.fromNullable(rows[0]).toEither<HttpError>(() => ({
+    status: 404,
+    body: { error: "not found" },
+  }));
+  if (found.isLeft()) {
+    return found.match({ left: (err) => c.json(err.body, err.status), right: () => c.json({}) });
+  }
 
   // Delete completed run + its metrics
   await sql`DELETE FROM metrics WHERE run_id = ${id}`;

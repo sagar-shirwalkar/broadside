@@ -1,3 +1,4 @@
+import { Maybe } from "@broadside/fp/maybe";
 import type {
   ChartSeries,
   EndpointRow,
@@ -13,8 +14,7 @@ export type ZoomRange = { from: number; to: number } | null;
 
 export interface State {
   readonly runId: string;
-  readonly run: RunRow | null;
-  readonly missing: boolean;
+  readonly run: Maybe<RunRow>;
   readonly rows: MetricRow[];
   readonly rawByPanel: ReadonlyMap<PanelKey, RawRow[]>;
   readonly endpoint: string;
@@ -31,8 +31,7 @@ export interface State {
 
 export const initialState = (runId = ""): State => ({
   runId,
-  run: null,
-  missing: false,
+  run: Maybe.nothing(),
   rows: [],
   rawByPanel: new Map(),
   endpoint: "",

@@ -48,35 +48,38 @@ const batchEnvelope = fc.record({
 });
 
 describe("normalize fuzz (fast-check)", () => {
-  it("never throws anything but TypeError on arbitrary JSON values", () => {
+  it("never throws on arbitrary JSON values (fails closed as Left or returns Right)", () => {
     fc.assert(
       fc.property(fc.jsonValue({ maxDepth: 4 }), (input) => {
-        try {
-          const points = normalizeBatch(input);
-          expect(Array.isArray(points)).toBe(true);
-          for (const point of points) {
-            expect(point.runId).toEqual(expect.any(String));
-            expect(point.endpoint).toEqual(expect.any(String));
-            expect(Number.isFinite(point.rps)).toBe(true);
-            expect(Number.isFinite(point.p50)).toBe(true);
-            expect(Number.isFinite(point.p95)).toBe(true);
-            expect(Number.isFinite(point.p99)).toBe(true);
-            expect(Number.isFinite(point.errorRate)).toBe(true);
-            for (const optional of [
-              point.errorCount,
-              point.vusersStarted,
-              point.vusersStopped,
-              point.vusersCreated,
-              point.vusersCompleted,
-            ]) {
-              if (optional !== undefined) {
-                expect(Number.isFinite(optional)).toBe(true);
+        const result = normalizeBatch(input);
+        result.match({
+          left: (err) => {
+            expect(typeof err.message).toBe("string");
+          },
+          right: (points) => {
+            expect(Array.isArray(points)).toBe(true);
+            for (const point of points) {
+              expect(point.runId).toEqual(expect.any(String));
+              expect(point.endpoint).toEqual(expect.any(String));
+              expect(Number.isFinite(point.rps)).toBe(true);
+              expect(Number.isFinite(point.p50)).toBe(true);
+              expect(Number.isFinite(point.p95)).toBe(true);
+              expect(Number.isFinite(point.p99)).toBe(true);
+              expect(Number.isFinite(point.errorRate)).toBe(true);
+              for (const optional of [
+                point.errorCount,
+                point.vusersStarted,
+                point.vusersStopped,
+                point.vusersCreated,
+                point.vusersCompleted,
+              ]) {
+                if (optional !== undefined) {
+                  expect(Number.isFinite(optional)).toBe(true);
+                }
               }
             }
-          }
-        } catch (err) {
-          expect(err).toBeInstanceOf(TypeError);
-        }
+          },
+        });
       }),
     );
   });
@@ -84,23 +87,24 @@ describe("normalize fuzz (fast-check)", () => {
   it("preserves batch length and run-id inheritance for valid batches", () => {
     fc.assert(
       fc.property(batchEnvelope, (envelope) => {
-        try {
-          const points = normalizeBatch(envelope);
-          expect(points).toHaveLength(envelope.points.length);
-          points.forEach((point, i) => {
-            const raw = envelope.points[i] as Record<string, unknown> | undefined;
-            const ownRunId = raw?.run_id ?? raw?.runId;
-            if (typeof ownRunId === "string" && ownRunId.length > 0) {
-              expect(point.runId).toBe(ownRunId);
-            } else {
-              expect(point.runId).toBe(envelope.run_id);
-            }
-          });
-        } catch (err) {
-          // Garbage items in the points array reject the whole batch —
-          // that is the fail-closed contract. It must be a TypeError.
-          expect(err).toBeInstanceOf(TypeError);
-        }
+        const result = normalizeBatch(envelope);
+        result.match({
+          left: () => {
+            // Garbage items in the points array reject the whole batch — fail closed.
+          },
+          right: (points) => {
+            expect(points).toHaveLength(envelope.points.length);
+            points.forEach((point, i) => {
+              const raw = envelope.points[i] as Record<string, unknown> | undefined;
+              const ownRunId = raw?.run_id ?? raw?.runId;
+              if (typeof ownRunId === "string" && ownRunId.length > 0) {
+                expect(point.runId).toBe(ownRunId);
+              } else {
+                expect(point.runId).toBe(envelope.run_id);
+              }
+            });
+          },
+        });
       }),
     );
   });

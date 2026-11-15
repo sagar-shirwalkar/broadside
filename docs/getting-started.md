@@ -50,6 +50,8 @@
    - API server: `http://localhost:3000` (REST/WS, gRPC on `:3001`)
    - Dashboard dev server (Vite): `http://localhost:5173` (proxies `/api`, `/ws`, `/readyz`, `/livez` to `:3000`)
 
+   When actively editing `packages/fp`, dev resolves `@broadside/fp` from source (`source` condition), so `pnpm task dev:full` picks up changes without rebuilding `packages/fp/dist`. Run `pnpm task fp:build` if you need fresh dist artifacts (e.g. before `pnpm start`/`node dist/index.js`; `pnpm task build` already builds FP as part of the server build).
+
    Individual processes:
 
    ```bash
@@ -60,9 +62,9 @@
    **Production-style (built artifacts):**
 
    ```bash
-   pnpm task build          # server + UI (ui/dist)
+   pnpm task build          # server + UI (builds @broadside/fp + server + UI)
    pnpm task db:up          # ensure TimescaleDB is running
-   node dist/server.js      # serves API + built UI
+   pnpm start               # or: node dist/index.js (serves API + built UI)
    ```
 
    **Docker Compose (split stack):**

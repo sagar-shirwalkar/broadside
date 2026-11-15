@@ -1,4 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { normalizeBatch } from ".././normalize.ts";
 
 const h = vi.hoisted(() => {
   const sqlMock = vi.fn() as any;
@@ -49,6 +53,7 @@ import {
   isRunActive,
   killRun,
   parseReportPoints,
+  prepareScriptForLive,
   processReport,
   spawnArtillery,
   type ArtilleryReport,
@@ -478,7 +483,8 @@ describe("processReport", () => {
       "/tmp/artillery-run/report.json",
       "utf-8",
     );
-    expect(h.flush).toHaveBeenCalled();
+    // parse -> flush buffered stream -> delete provisional -> ingest report -> flush final
+    expect(h.flush).toHaveBeenCalledTimes(2);
     expect(h.sqlMock).toHaveBeenCalledTimes(2); // delete streamed metrics, then update run
     expect(h.sqlMock.mock.calls[0]?.join(" ")).toContain("DELETE FROM metrics");
     expect(h.ingest).toHaveBeenCalledTimes(1);
@@ -580,6 +586,8 @@ describe("spawnArtillery", () => {
       expect.arrayContaining([
         "run",
         "/tmp/artillery-run-1/script.live.yml",
+        "-p",
+        "/tmp/artillery-run-1/broadside-reporter.cjs",
         "--output",
         "/tmp/artillery-run-1/report.json",
         "--quiet",
@@ -593,12 +601,23 @@ describe("spawnArtillery", () => {
           ARTILLERY_DISABLE_TELEMETRY: "1",
           BROADSIDE_RUN_ID: "run-1",
           BROADSIDE_INGEST_URL: "ws://127.0.0.1:3000/ws",
-          NODE_PATH: expect.stringContaining("/tmp/artillery-run-1"),
         }),
       }),
     );
     const argv = h.spawn.mock.calls[0]?.[1] as string[];
-    expect(argv).not.toContain("-p");
+    expect(argv).toContain("-p");
+    expect(argv[argv.indexOf("-p") + 1]).toBe(
+      "/tmp/artillery-run-1/broadside-reporter.cjs",
+    );
+    expect(
+      String((h.spawn.mock.calls[0]?.[2] as any)?.env?.NODE_PATH ?? ""),
+    ).not.toContain("/tmp/artillery-run-1");
+    // plugin file written for -p loading
+    expect(h.writeFile).toHaveBeenCalledWith(
+      "/tmp/artillery-run-1/broadside-reporter.cjs",
+      expect.stringContaining("broadside-reporter"),
+      "utf-8",
+    );
     expect(isRunActive("run-1")).toBe(true);
 
     proc.emit("close", 0);
@@ -631,6 +650,12 @@ describe("spawnArtillery", () => {
       expect.objectContaining({ runId: "run-1" }),
       "[artillery] error processing run",
     );
+    // parse/read failure happens before deleting provisional streamed metrics
+    expect(
+      h.sqlMock.mock.calls.some((c: unknown[]) =>
+        String(c?.join(" ")).includes("DELETE FROM metrics"),
+      ),
+    ).toBe(false);
     expect(h.rm).toHaveBeenCalled();
   });
 
@@ -771,5 +796,84 @@ describe("spawnArtillery", () => {
   it("reports unknown runs as inactive", () => {
     expect(killRun("missing")).toBe(false);
     expect(isRunActive("missing")).toBe(false);
+  });
+});
+
+
+describe("prepareScriptForLive", () => {
+  it("injects statsInterval for YAML scripts without registering a plugin", async () => {
+    h.readFile.mockResolvedValueOnce(
+      "config:\n  target: http://localhost\nscenarios: []\n",
+    );
+    h.writeFile.mockResolvedValue(undefined);
+
+    const out = await prepareScriptForLive(
+      "/tmp/artillery-run-1/load.yml",
+      "/tmp/artillery-run-1",
+    );
+
+    expect(out).toBe("/tmp/artillery-run-1/script.live.yml");
+    expect(h.readFile).toHaveBeenCalledWith(
+      "/tmp/artillery-run-1/load.yml",
+      "utf-8",
+    );
+    const written = h.writeFile.mock.calls.find(
+      (c) => c[0] === "/tmp/artillery-run-1/script.live.yml",
+    );
+    expect(written).toBeTruthy();
+    const text = String(written?.[1]);
+    expect(text).toContain("statsInterval: 1");
+    expect(text).not.toContain("broadside-reporter");
+    expect(text).not.toContain("plugins:");
+  });
+});
+
+describe("broadside reporter plugin contract", () => {
+  it("normalizes the plugin {run_id, points} envelope into MetricPoints", () => {
+    const out = normalizeBatch({
+      run_id: "run-1",
+      points: [
+        {
+          time_ms: 1_700_000_000_000,
+          endpoint: "/api",
+          rps: 2,
+          p50: 10,
+          p95: 20,
+          p99: 30,
+          error_rate: 0.1,
+          error_count: 1,
+          hist_min: 5,
+          hist_max: 40,
+          hist_p75: 15,
+          hist_p90: 18,
+          hist_p999: 35,
+          vusers_started: 3,
+        },
+      ],
+    }).match({
+      left: (e) => {
+        throw new Error(e.message);
+      },
+      right: (v) => v,
+    });
+
+    expect(out).toEqual([
+      expect.objectContaining({
+        runId: "run-1",
+        endpoint: "/api",
+        rps: 2,
+        p50: 10,
+        p95: 20,
+        p99: 30,
+        errorRate: 0.1,
+        errorCount: 1,
+        histMin: 5,
+        histMax: 40,
+        histP75: 15,
+        histP90: 18,
+        histP999: 35,
+        vusersStarted: 3,
+      }),
+    ]);
   });
 });

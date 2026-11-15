@@ -1,5 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { parseHash } from ".././router.ts";
+import { matchRoute, parseHash } from ".././router.ts";
+
+describe("matchRoute", () => {
+  it("returns Just for known routes and Nothing for unknown", () => {
+    expect(matchRoute("#/runs/abc").isJust()).toBe(true);
+    expect(matchRoute("#/runs/abc").getOrElse({ name: "overview" })).toEqual({
+      name: "detail",
+      id: "abc",
+    });
+    expect(matchRoute("#/nope").isNothing()).toBe(true);
+  });
+});
 
 describe("parseHash", () => {
   it("maps the root hash to the overview", () => {

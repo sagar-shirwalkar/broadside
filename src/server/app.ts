@@ -32,30 +32,36 @@ function registerWsIngest(app: Hono<AppEnv>): void {
             return;
           }
           const raw = JSON.parse(text);
-          const points = normalizeBatch(raw);
-          const capped = points.slice(0, config.ingest.maxBatchPoints);
-          if (capped.length > 0) {
-            metricsFlusher.ingest(capped);
-            const runIds = [...new Set(capped.map((p) => p.runId).filter(Boolean))];
-            for (const runId of runIds) ingestTracker.touch(runId);
-            logger.debug(
-              { points: capped.length, runs: runIds.length, runId: runIds[0] },
-              "[ws] ingest batch",
-            );
-            if (metricsFlusher.shouldSlowDown()) {
-              try {
-                ws.send(
-                  JSON.stringify({
-                    type: "slow_down",
-                    target_hz: metricsFlusher.getSlowDownTargetHz(),
-                  }),
+          normalizeBatch(raw).match({
+            left: (err) => {
+              ws.send(JSON.stringify({ error: "invalid message", reason: err.message }));
+            },
+            right: (points) => {
+              const capped = points.slice(0, config.ingest.maxBatchPoints);
+              if (capped.length > 0) {
+                metricsFlusher.ingest(capped);
+                const runIds = [...new Set(capped.map((p) => p.runId).filter(Boolean))];
+                for (const runId of runIds) ingestTracker.touch(runId);
+                logger.debug(
+                  { points: capped.length, runs: runIds.length, runId: runIds[0] },
+                  "[ws] ingest batch",
                 );
-                metricsFlusher.noteSlowDownSent();
-              } catch {
-                // best-effort control frame
+                if (metricsFlusher.shouldSlowDown()) {
+                  try {
+                    ws.send(
+                      JSON.stringify({
+                        type: "slow_down",
+                        target_hz: metricsFlusher.getSlowDownTargetHz(),
+                      }),
+                    );
+                    metricsFlusher.noteSlowDownSent();
+                  } catch {
+                    // best-effort control frame
+                  }
+                }
               }
-            }
-          }
+            },
+          });
         } catch {
           ws.send(JSON.stringify({ error: "invalid message" }));
         }

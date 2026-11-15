@@ -25,6 +25,9 @@ function tuneHttpServer(server: HttpServer): void {
   if (config.server.maxRequestsPerSocket > 0) {
     server.maxRequestsPerSocket = config.server.maxRequestsPerSocket;
   }
+  if (config.server.maxConnections > 0) {
+    server.maxConnections = config.server.maxConnections;
+  }
 }
 
 async function main() {

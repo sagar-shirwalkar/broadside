@@ -1,6 +1,9 @@
 import { defineConfig } from "vite";
 
 export default defineConfig({
+  resolve: {
+    conditions: ["source", "import", "module", "browser", "default"],
+  },
   server: {
     port: 5173,
     // In dev, proxy API/probe/ws calls to the backend so the browser never

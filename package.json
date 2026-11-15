@@ -26,6 +26,7 @@
   },
   "packageManager": "pnpm@12.18.0",
   "dependencies": {
+    "@broadside/fp": "workspace:*",
     "@bufbuild/protobuf": "^2.10.0",
     "@connectrpc/connect": "^2.3.0",
     "@connectrpc/connect-node": "^2.3.0",

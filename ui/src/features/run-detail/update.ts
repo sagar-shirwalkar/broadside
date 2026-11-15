@@ -1,3 +1,4 @@
+import { Maybe } from "@broadside/fp/maybe";
 import type { Action, State } from "./types.ts";
 
 export function update(state: State, action: Action): State {
@@ -5,15 +6,15 @@ export function update(state: State, action: Action): State {
     case "set_run_id":
       return { ...state, runId: action.runId };
     case "load_started":
-      return { ...state, loading: true, missing: false };
+      return { ...state, loading: true, run: Maybe.nothing() };
     case "run_loaded":
       return {
         ...state,
-        run: action.run,
+        run: Maybe.just(action.run),
         granularity: (action.run.duration_ms ?? Infinity) < 120_000 ? "10s" : "1m",
       };
     case "missing":
-      return { ...state, missing: true };
+      return { ...state, run: Maybe.nothing() };
     case "metrics_loaded":
       return { ...state, rows: action.rows };
     case "previous_loaded":

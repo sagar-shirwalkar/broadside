@@ -1,6 +1,8 @@
 import { LitElement, css, html } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import { ref } from "lit/directives/ref.js";
+import { Either } from "@broadside/fp/either";
+import { Maybe } from "@broadside/fp/maybe";
 import {
   api,
   apiGet,
@@ -109,8 +111,7 @@ const INFO = {
 export class RunDetail extends LitElement {
   @property() runId = "";
 
-  @state() private run: RunRow | null = null;
-  @state() private missing = false;
+  @state() private run: Maybe<RunRow> = Maybe.nothing();
   @state() private rows: MetricRow[] = [];
   @state() private rawByPanel = new Map<PanelKey, RawRow[]>();
   @state() private endpoint = "";
@@ -174,48 +175,65 @@ export class RunDetail extends LitElement {
     this.endpointObserver.observe(el);
   };
 
-  private async loadAll() {
-    this.loading = true;
+  private async loadRunResult(): Promise<Either<"missing" | "error", RunRow>> {
     try {
-      this.run = await apiGet<RunRow>(
+      const run = await apiGet<RunRow>(
         `/api/runs/${encodeURIComponent(this.runId)}`,
       );
-      // A 1-minute rollup collapses sub-2-minute runs into a single
-      // bucket — offer the 10s CAGG instead so charts have shape.
-      this.granularity =
-        (this.run.duration_ms ?? Infinity) < 120_000 ? "10s" : "1m";
-      window.dispatchEvent(
-        new CustomEvent(RUN_STATUS_EVENT, {
-          detail: this.run.status,
-          bubbles: true,
-          composed: true,
-        }),
-      );
-
-      if (this.run.status === "running") {
-        // Live mode: stream raw points into charts while run is in progress.
-        this.rows = [];
-        this.live = true;
-        this.livePoints = [];
-        this.liveBootstrapping = true;
-        await Promise.all([this.loadPrevious(), this.loadAnnotations()]);
-        void this.seedLive();
-        this.connectLive();
-      } else {
-        this.stopLiveStream();
-        await Promise.all([
-          this.loadMetrics(),
-          this.loadPrevious(),
-          this.loadAnnotations(),
-        ]);
-      }
+      return Maybe.fromNullable(run).toEither(() => "error" as const);
     } catch (err) {
       if (err instanceof ApiError && err.status === 404) {
-        this.missing = true;
+        return Either.left("missing");
       }
-    } finally {
-      this.loading = false;
+      return Either.left("error");
     }
+  }
+
+  private async loadAll() {
+    this.loading = true;
+    const result = await this.loadRunResult();
+    await result.match({
+      left: async (reason) => {
+        // 404 => missing (Nothing). Other errors also leave run absent so UI doesn't spin forever.
+        this.run = Maybe.nothing();
+        if (reason === "missing") {
+          // explicit not-found state represented by Nothing after load completes
+        }
+      },
+      right: async (run) => {
+        this.run = Maybe.just(run);
+        // A 1-minute rollup collapses sub-2-minute runs into a single
+        // bucket — offer the 10s CAGG instead so charts have shape.
+        this.granularity =
+          (run.duration_ms ?? Infinity) < 120_000 ? "10s" : "1m";
+        window.dispatchEvent(
+          new CustomEvent(RUN_STATUS_EVENT, {
+            detail: run.status,
+            bubbles: true,
+            composed: true,
+          }),
+        );
+
+        if (run.status === "running") {
+          // Live mode: stream raw points into charts while run is in progress.
+          this.rows = [];
+          this.live = true;
+          this.livePoints = [];
+          this.liveBootstrapping = true;
+          await Promise.all([this.loadPrevious(), this.loadAnnotations()]);
+          void this.seedLive();
+          this.connectLive();
+        } else {
+          this.stopLiveStream();
+          await Promise.all([
+            this.loadMetrics(),
+            this.loadPrevious(),
+            this.loadAnnotations(),
+          ]);
+        }
+      },
+    });
+    this.loading = false;
   }
 
   private metricParams(): string {
@@ -313,8 +331,8 @@ export class RunDetail extends LitElement {
       this.live = false;
       this.liveReconnecting = false;
       this.livePoints = [];
-      if (this.run) {
-        this.run = { ...this.run, ...summary } as RunRow;
+      if (this.run.isJust()) {
+        this.run = this.run.map((run) => ({ ...run, ...summary }) as RunRow);
       }
       window.dispatchEvent(
         new CustomEvent(RUN_STATUS_EVENT, {
@@ -337,13 +355,18 @@ export class RunDetail extends LitElement {
   // (reload handled via loadAll() on completion)
 
   private async loadPrevious() {
+    const current = this.run.toNullable();
+    if (!current) {
+      this.previous = null;
+      return;
+    }
     try {
       const list = await apiGet<RunRow[]>("/api/runs?limit=100");
-      const started = new Date(this.run!.started_at).getTime();
+      const started = new Date(current.started_at).getTime();
       this.previous =
         list.find(
           (row) =>
-            row.id !== this.run!.id &&
+            row.id !== current.id &&
             new Date(row.started_at).getTime() < started,
         ) ?? null;
     } catch {
@@ -549,10 +572,10 @@ export class RunDetail extends LitElement {
   }
 
   override render() {
-    if (this.missing) {
+    if (!this.loading && this.run.isNothing()) {
       return html`<broadside-not-found message="Run not found"></broadside-not-found>`;
     }
-    if (this.loading || !this.run) {
+    if (this.loading || this.run.isNothing()) {
       return html`<div class="page">
         <div class="kpis">
           ${[0, 1, 2, 3, 4, 5].map(
@@ -565,7 +588,7 @@ export class RunDetail extends LitElement {
       </div>`;
     }
 
-    const run = this.run;
+    const run = this.run.toNullable()!;
     const prev = this.previous;
     const zoomDomain = (key: PanelKey): [number, number] | null => {
       const z = this.zoomByPanel.get(key) ?? null;

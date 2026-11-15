@@ -1,6 +1,17 @@
 import { describe, expect, it } from "vitest";
 import { normalizeBatch, normalizePoint } from ".././normalize.ts";
 
+import type { MetricPoint } from "../../types.ts";
+
+function unwrap(result: ReturnType<typeof normalizeBatch>): MetricPoint[] {
+  return result.match({
+    left: (e) => {
+      throw new Error(`expected Right, got Left: ${e.message}`);
+    },
+    right: (v) => v,
+  });
+}
+
 describe("normalizePoint", () => {
   it("normalizes snake_case payloads", () => {
     const point = normalizePoint({
@@ -66,13 +77,15 @@ describe("normalizePoint", () => {
 
 describe("normalizeBatch", () => {
   it("inherits the batch run id for points that omit it", () => {
-    const points = normalizeBatch({
-      run_id: "run-1",
-      points: [
-        { time_ms: 1, endpoint: "/a" },
-        { time_ms: 2, endpoint: "/b", run_id: "run-2" },
-      ],
-    });
+    const points = unwrap(
+      normalizeBatch({
+        run_id: "run-1",
+        points: [
+          { time_ms: 1, endpoint: "/a" },
+          { time_ms: 2, endpoint: "/b", run_id: "run-2" },
+        ],
+      }),
+    );
 
     expect(points).toHaveLength(2);
     expect(points[0]?.runId).toBe("run-1");
@@ -80,11 +93,13 @@ describe("normalizeBatch", () => {
   });
 
   it("treats a payload without a points array as a single point", () => {
-    const points = normalizeBatch({
-      run_id: "run-1",
-      time_ms: 1,
-      endpoint: "/a",
-    });
+    const points = unwrap(
+      normalizeBatch({
+        run_id: "run-1",
+        time_ms: 1,
+        endpoint: "/a",
+      }),
+    );
 
     expect(points).toHaveLength(1);
     expect(points[0]).toMatchObject({
@@ -95,34 +110,35 @@ describe("normalizeBatch", () => {
   });
 
   it("accepts a camelCase batch run id", () => {
-    const points = normalizeBatch({
-      runId: "run-3",
-      points: [{ time_ms: 1, endpoint: "/a" }],
-    });
+    const points = unwrap(
+      normalizeBatch({
+        runId: "run-3",
+        points: [{ time_ms: 1, endpoint: "/a" }],
+      }),
+    );
 
     expect(points[0]?.runId).toBe("run-3");
   });
 
   it("handles an empty points array", () => {
-    expect(normalizeBatch({ run_id: "run-1", points: [] })).toEqual([]);
+    expect(unwrap(normalizeBatch({ run_id: "run-1", points: [] }))).toEqual([]);
   });
 
   it("defaults the run id when neither alias is present", () => {
-    const points = normalizeBatch({ points: [{ time_ms: 1, endpoint: "/a" }] });
+    const points = unwrap(normalizeBatch({ points: [{ time_ms: 1, endpoint: "/a" }] }));
 
     expect(points[0]?.runId).toBe("");
   });
 
   it("rejects a message whose points field is not an array", () => {
-    expect(() =>
-      normalizeBatch({ run_id: "run-1", points: "not-an-array" }),
-    ).toThrow(TypeError);
+    const r = normalizeBatch({ run_id: "run-1", points: "not-an-array" });
+    expect(r.isLeft()).toBe(true);
   });
 
   it("rejects a non-object message", () => {
-    expect(() => normalizeBatch(42 as unknown as object)).toThrow(TypeError);
-    expect(() => normalizeBatch("hello" as unknown as object)).toThrow(TypeError);
-    expect(() => normalizeBatch(null as unknown as object)).toThrow(TypeError);
+    expect(normalizeBatch(42 as unknown as object).isLeft()).toBe(true);
+    expect(normalizeBatch("hello" as unknown as object).isLeft()).toBe(true);
+    expect(normalizeBatch(null as unknown as object).isLeft()).toBe(true);
   });
 
   it("rejects wrongly-typed scalars", () => {

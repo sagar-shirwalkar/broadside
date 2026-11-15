@@ -101,17 +101,8 @@ export async function spawnArtillery(opts: SpawnOptions): Promise<void> {
 
   const tmpDir = await mkdtemp(join(tmpdir(), `artillery-${safeName(runId)}-`));
   const outputFile = join(tmpDir, "report.json");
-  const pluginCode = renderBroadsideReporterPlugin();
-  const pluginPath = join(tmpDir, "artillery-plugin-broadside-reporter.js");
-  await writeFile(pluginPath, pluginCode, "utf-8");
-  const pluginPkgDir = join(tmpDir, "node_modules", "artillery-plugin-broadside-reporter");
-  await mkdir(pluginPkgDir, { recursive: true });
-  await writeFile(join(pluginPkgDir, "index.js"), pluginCode, "utf-8");
-  await writeFile(
-    join(pluginPkgDir, "package.json"),
-    JSON.stringify({ name: "artillery-plugin-broadside-reporter", main: "index.js" }),
-    "utf-8",
-  );
+  const pluginPath = join(tmpDir, "broadside-reporter.cjs");
+  await writeFile(pluginPath, renderBroadsideReporterPlugin(), "utf-8");
 
   const ingestUrl = resolveIngestWsUrl();
   const effectiveScriptPath = await prepareScriptForLive(scriptPath, tmpDir);
@@ -119,6 +110,8 @@ export async function spawnArtillery(opts: SpawnOptions): Promise<void> {
   const args = [
     "run",
     effectiveScriptPath,
+    "-p",
+    pluginPath,
     "--output",
     outputFile,
     "--quiet",
@@ -139,7 +132,6 @@ export async function spawnArtillery(opts: SpawnOptions): Promise<void> {
       ARTILLERY_DISABLE_TELEMETRY: "1",
       BROADSIDE_RUN_ID: runId,
       BROADSIDE_INGEST_URL: ingestUrl,
-      NODE_PATH: [tmpDir, process.env.NODE_PATH].filter(Boolean).join(":"),
     };
     logger.info(
       {
@@ -174,13 +166,31 @@ export async function spawnArtillery(opts: SpawnOptions): Promise<void> {
   activeRuns.set(runId, activeRun);
 
   // Drain output so the child never blocks, keep tails for diagnostics.
+  // Forward reporter diagnostics at info so live-stream issues are visible.
   let stderr = "";
   let stdout = "";
+  let stderrRemainder = "";
   proc.stdout?.on("data", (chunk: Buffer | string) => {
     stdout += chunk.toString();
   });
   proc.stderr?.on("data", (chunk: Buffer | string) => {
-    stderr += chunk.toString();
+    const text = chunk.toString();
+    stderr += text;
+    stderrRemainder += text;
+    const lines = stderrRemainder.split(/\r?\n/);
+    stderrRemainder = lines.pop() ?? "";
+    for (const line of lines) {
+      if (line.startsWith("[broadside-reporter]")) {
+        logger.info({ runId }, line);
+      }
+    }
+  });
+  proc.stderr?.on("end", () => {
+    const line = stderrRemainder.trim();
+    if (line.startsWith("[broadside-reporter]")) {
+      logger.info({ runId }, line);
+    }
+    stderrRemainder = "";
   });
 
   let started = false;
@@ -233,7 +243,11 @@ async function handleClose(
       await processReport(activeRun.id, activeRun.outputFile);
       if (stdout.trim() || stderr.trim()) {
         logger.debug(
-          { runId: activeRun.id, stdout: stdout.trim().slice(-4000), stderr: stderr.trim().slice(-4000) },
+          {
+            runId: activeRun.id,
+            stdout: stdout.trim().slice(-4000),
+            stderr: stderr.trim().slice(-4000),
+          },
           "[artillery] child output",
         );
       }
@@ -242,6 +256,7 @@ async function handleClose(
         activeRun,
         (stderr || stdout).trim() || `artillery exited with code ${code}`,
         "artillery_exit_nonzero",
+        true,
       );
     }
   } catch (err) {
@@ -273,6 +288,7 @@ async function handleSpawnError(
 async function markRunFailed(
   activeRun: ActiveRun,
   failureReason: string,
+  partialData = false,
 ): Promise<void> {
   const durationMs = Date.now() - activeRun.startedAt.getTime();
   try {
@@ -280,7 +296,8 @@ async function markRunFailed(
       UPDATE runs SET
         status = 'failed',
         duration_ms = COALESCE(duration_ms, ${durationMs}),
-        failure_reason = COALESCE(failure_reason, ${failureReason})
+        failure_reason = COALESCE(failure_reason, ${failureReason}),
+        partial_data = CASE WHEN ${partialData} THEN TRUE ELSE COALESCE(partial_data, FALSE) END
       WHERE id = ${activeRun.id}
     `;
   } catch (err) {
@@ -295,8 +312,9 @@ async function failRun(
   activeRun: ActiveRun,
   reason: string,
   failureReason = "failed",
+  partialData = false,
 ): Promise<void> {
-  await markRunFailed(activeRun, failureReason);
+  await markRunFailed(activeRun, failureReason, partialData);
 
   logger.error(
     { runId: activeRun.id, reason, failureReason },
@@ -577,17 +595,9 @@ export async function processReport(
   outputFile: string,
 ): Promise<void> {
   const raw = await readFile(outputFile, "utf-8");
+  // Parse/derive before mutating DB so a bad report does not delete provisional data.
   const report = JSON.parse(raw) as ArtilleryReport;
-
-  // Ensure any late-streamed points are flushed, then replace provisional
-  // streamed metrics with the authoritative final report.
-  await metricsFlusher.flush();
-  await sql`DELETE FROM metrics WHERE run_id = ${runId}`;
-
   const points = parseReportPoints(report, runId);
-  if (points.length > 0) {
-    metricsFlusher.ingest(points);
-  }
 
   const aggregate = report.aggregate;
   const counters = aggregate.counters ?? {};
@@ -604,6 +614,17 @@ export async function processReport(
 
   const durationMs = reportDuration(report, aggregate);
   const reportPath = await persistReport(runId, raw);
+
+  // Replace provisional streamed metrics with the authoritative final report.
+  await metricsFlusher.flush();
+  await sql`DELETE FROM metrics WHERE run_id = ${runId}`;
+
+  if (points.length > 0) {
+    metricsFlusher.ingest(points);
+  }
+  // Flush final report points before marking complete so the completed view
+  // (CAGG-backed /metrics and SSE readers seeing status!=running) can observe them.
+  await metricsFlusher.flush();
 
   await sql`
     UPDATE runs SET
@@ -692,7 +713,10 @@ function resolveIngestWsUrl(): string {
   return url;
 }
 
-async function prepareScriptForLive(scriptPath: string, tmpDir: string): Promise<string> {
+export async function prepareScriptForLive(
+  scriptPath: string,
+  tmpDir: string,
+): Promise<string> {
   if (!/\.ya?ml$/i.test(scriptPath)) return scriptPath;
   try {
     const raw = await readFile(scriptPath, "utf-8");
@@ -700,14 +724,6 @@ async function prepareScriptForLive(scriptPath: string, tmpDir: string): Promise
     if (!parsed || typeof parsed !== "object") return scriptPath;
     parsed.config = parsed.config && typeof parsed.config === "object" ? parsed.config : {};
     if (parsed.config.statsInterval == null) parsed.config.statsInterval = 1;
-    parsed.config.plugins =
-      parsed.config.plugins && typeof parsed.config.plugins === "object"
-        ? parsed.config.plugins
-        : {};
-    // Register temp live-stream reporter plugin (resolved via NODE_PATH in tmpDir).
-    parsed.config.plugins["broadside-reporter"] = {
-      ...(parsed.config.plugins["broadside-reporter"] ?? {}),
-    };
     const outPath = join(tmpDir, "script.live.yml");
     await writeFile(outPath, stringifyYaml(parsed), "utf-8");
     return outPath;
@@ -865,6 +881,8 @@ class BroadsideReporter {
     this.state = { lastTime: null };
     this.sentBatches = 0;
     this.sentPoints = 0;
+    this.statsEvents = 0;
+    this.closing = false;
     if (!this.runId) {
       console.error('[broadside-reporter] missing BROADSIDE_RUN_ID, disabled');
       return;
@@ -877,6 +895,7 @@ class BroadsideReporter {
     this.connect();
   }
   connect(){
+    if (this.closing) return;
     console.error('[broadside-reporter] connecting to', this.ingestUrl);
     try {
       this.ws = new WebSocket(this.ingestUrl);
@@ -895,10 +914,14 @@ class BroadsideReporter {
     this.ws.on('error', (err) => { console.error('[broadside-reporter] ws error', err && err.message); });
   }
   scheduleReconnect(){
-    if (this.reconnectTimer) return;
+    if (this.closing || this.reconnectTimer) return;
     this.reconnectTimer = setTimeout(() => { this.reconnectTimer = null; this.connect(); }, 2000);
   }
   onStats(stats){
+    this.statsEvents += 1;
+    if (this.statsEvents <= 3 || this.statsEvents % 20 === 0) {
+      console.error('[broadside-reporter] onStats', JSON.stringify({ count: this.statsEvents }));
+    }
     if (Date.now() < this.slowdownUntil) return;
     let points = [];
     try { points = transformStats(this.runId, stats, this.state) || []; } catch (err) { console.error('[broadside-reporter] transform error', err && err.message); return; }
@@ -923,9 +946,10 @@ class BroadsideReporter {
     catch (err) { console.error('[broadside-reporter] send error', err && err.message); this.buffer.unshift(...batch); }
   }
   close(){
+    this.closing = true;
+    if (this.reconnectTimer) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null; }
     try { this.flush(); } catch {}
     try { if (this.ws) this.ws.close(); } catch {}
-    if (this.reconnectTimer) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null; }
     console.error('[broadside-reporter] closed', JSON.stringify({ batches: this.sentBatches, points: this.sentPoints }));
   }
 }
