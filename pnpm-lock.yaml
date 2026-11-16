@@ -176,8 +176,8 @@ importers:
         specifier: ^2.3.0
         version: 2.3.0(@bufbuild/protobuf@2.17.0)(@connectrpc/connect@2.3.0(@bufbuild/protobuf@2.17.0))
       '@hono/node-server':
-        specifier: ^2.1.5
-        version: 2.1.6(hono@4.13.16)
+        specifier: ^2.1.8
+        version: 2.1.8(hono@4.13.16)
       '@hono/structured-logger':
         specifier: ^1.0.0
         version: 1.0.0(hono@4.13.16)
@@ -498,8 +498,8 @@ packages:
     resolution: {integrity: sha512-bnb6hoAQIscz4CbQ8Xl7sssUWTJLmSwi12SpDyyS9O58NDOlvjH/WA1pkb++7iuUy6uYqxOn5KVBIcWplMCADg==}
     hasBin: true
 
-  '@hono/node-server@2.1.6':
-    resolution: {integrity: sha512-p/KH9MnfNcsm3sR6x4lNgm5j+QN4Et8srKredl9DZfXiyZ1UQ3aQ2YVpFLbqktYN5JI+DB+VZFKM2PqE5hLKjQ==}
+  '@hono/node-server@2.1.8':
+    resolution: {integrity: sha512-jdf7FHh6A1lzjpHHQUgxsg2GeER2vMetnAOfeActzcoli6jamlK+NAwL6Dsr5Fl3BS3tYUQzCdtZjU8Qxv7bEA==}
     engines: {node: '>=20'}
     peerDependencies:
       hono: ^4 || ^5.0.0-0
@@ -1711,7 +1711,7 @@ snapshots:
       - kerberos
       - supports-color
 
-  '@hono/node-server@2.1.6(hono@4.13.16)':
+  '@hono/node-server@2.1.8(hono@4.13.16)':
     dependencies:
       hono: 4.13.16
 
