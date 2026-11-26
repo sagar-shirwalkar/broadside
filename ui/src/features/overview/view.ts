@@ -1,15 +1,16 @@
 import { html, type TemplateResult } from "lit";
-import { navigate } from "../../router.js";
-import type { ChartPoint, ChartSeries } from "../../types.js";
-import type { Cmd } from "../../core/types.js";
+import { and, or } from "@broadside/fp/predicate";
+import { navigate } from "../../lib/router.ts";
+import type { ChartPoint, ChartSeries } from "../../types.ts";
+import type { Cmd } from "../../core/types.ts";
 import "../../components/line-chart.js";
 import "../../components/kpi-card.js";
 import "../../components/chart-panel.js";
 import "../../components/info-tip.js";
 import "../../components/status-dot.js";
 import "../../components/select.js";
-import { loadOverview } from "./cmds.js";
-import type { Action, RecentRun, Regression, SloEntry, State, TrendPoint, WorstEndpoint } from "./types.js";
+import { loadOverview } from "./cmds.ts";
+import type { Action, RecentRun, Regression, SloEntry, State, TrendPoint, WorstEndpoint } from "./types.ts";
 
 const TREND_OPTIONS = [
   { value: "1", label: "1 day" },
@@ -56,13 +57,19 @@ function statusTone(status: string): "ok" | "warn" | "bad" {
   return "warn";
 }
 
+const hasSloData = (slo: readonly SloEntry[]) =>
+  slo.length > 0 && !slo.every((s) => s.total === 0);
+const sloHealthy = (avg: number) => avg >= 0.9;
+const sloAtRisk = (avg: number) => avg >= 0.75;
+const sloWarnTone = and(sloAtRisk, (avg: number) => !sloHealthy(avg));
+
 function sloSummary(state: State): { pct: number; tone: "ok" | "warn" | "bad" | "nodata"; target: string } {
   const slo = state.data?.slo ?? [];
-  if (!slo.length || slo.every((s) => s.total === 0)) {
+  if (!hasSloData(slo)) {
     return { pct: 0, tone: "nodata", target: "—" };
   }
   const avg = slo.reduce((acc, s) => acc + s.metPct, 0) / slo.length;
-  const tone = avg >= 0.9 ? "ok" : avg >= 0.75 ? "warn" : "bad";
+  const tone = sloHealthy(avg) ? "ok" : sloWarnTone(avg) ? "warn" : "bad";
   const targets = slo
     .map((s) =>
       s.unit === "ms"

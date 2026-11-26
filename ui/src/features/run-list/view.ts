@@ -1,14 +1,14 @@
 import { html, type TemplateResult } from "lit";
-import type { Cmd } from "../../core/types.js";
-import type { RunRow, RunStatus } from "../../types.js";
-import { formatDuration, formatMs, formatNumber, formatPercent, latencyClass, relativeTime } from "../../format.js";
-import { navigate } from "../../router.js";
+import type { Cmd } from "../../core/types.ts";
+import type { RunRow, RunStatus } from "../../types.ts";
+import { formatDuration, formatMs, formatNumber, formatPercent, latencyClass, relativeTime } from "../../lib/format.ts";
+import { navigate } from "../../lib/router.ts";
 import "../../components/skeleton.js";
 import "../../components/confirm-dialog.js";
 import "../../components/status-dot.js";
 import "../../components/select.js";
-import { deleteRun, loadRuns } from "./cmds.js";
-import type { Action, State } from "./types.js";
+import { deleteRun, loadRuns } from "./cmds.ts";
+import type { Action, State } from "./types.ts";
 
 const PAGE_SIZES = [25, 50, 100];
 
@@ -121,7 +121,12 @@ export function view(
                           tone=${statusTone(row.status)}
                           .pulse=${row.status === "running"}
                         ></broadside-status-dot>
-                        ${row.status}
+                        <span>${row.status}</span>
+                        ${row.partial_data
+                          ? html`<span class="warn" title=${`partial data${row.dropped_points ? ` (dropped ${row.dropped_points})` : ""}${row.failure_reason ? ` · ${row.failure_reason}` : ""}`}> ⚠</span>`
+                          : row.failure_reason
+                            ? html`<span class="muted" title=${row.failure_reason}> · ${row.failure_reason}</span>`
+                            : ""}
                       </td>
                       <td>
                         <button

@@ -1,6 +1,6 @@
 import { LitElement, css, html } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
-import { apiGet, RUN_STATUS_EVENT, sseUrl } from "../../services/api.js";
+import { apiGet, RUN_STATUS_EVENT, sseUrl } from "../../services/api.ts";
 import {
   activeVusers,
   cdfFromLatest,
@@ -9,10 +9,10 @@ import {
   tailSpread,
   toBucket,
   vusersIo,
-} from "../../derived-series.js";
-import type { ChartSeries, RawRow, RunRow } from "../../types.js";
-import { formatDuration, formatMs, formatNumber, formatPercent } from "../../format.js";
-import { navigate } from "../../router.js";
+} from "../../derived-series.ts";
+import type { ChartSeries, RawRow, RunRow } from "../../types.ts";
+import { formatDuration, formatMs, formatNumber, formatPercent } from "../../lib/format.ts";
+import { navigate } from "../../lib/router.ts";
 import "../../components/chart-panel.js";
 import "../../components/endpoint-select.js";
 import "../../components/skeleton.js";
@@ -240,10 +240,13 @@ export class LiveView extends LitElement {
         ${this.finished
           ? html`<p class="notice ${this.finished.status === "failed" ? "notice-bad" : "notice-ok"}">
               ${this.finished.status === "failed" ? "✕" : "✓"} run
-              ${this.finished.status} — ${formatDuration(this.finished.duration_ms)},
+              ${this.finished.status}${this.finished.failure_reason ? ` (${this.finished.failure_reason})` : ""} — ${formatDuration(this.finished.duration_ms)},
               ${formatNumber(this.finished.total_requests)} requests,
               p95 ${formatMs(this.finished.p95)},
               errors ${formatPercent(this.finished.error_rate)}.
+              ${this.finished.partial_data
+                ? ` partial data${this.finished.dropped_points ? `, dropped ${this.finished.dropped_points}` : ""}.`
+                : ""}
               <a href="#/runs/${this.runId}">view full report →</a>
             </p>`
           : ""}

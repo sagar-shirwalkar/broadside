@@ -1,21 +1,30 @@
 import { html, type TemplateResult } from "lit";
-import type { Cmd } from "../../core/types.js";
-import type { ChartSeries, Granularity, MetricRow, RunRow } from "../../types.js";
-import { formatDuration, formatMs, formatNumber, formatPercent, latencyClass } from "../../format.js";
+import { and, not } from "@broadside/fp/predicate";
+import type { Cmd } from "../../core/types.ts";
+import type { ChartSeries, Granularity, MetricRow, RunRow } from "../../types.ts";
+import { formatDuration, formatMs, formatNumber, formatPercent, latencyClass } from "../../lib/format.ts";
 import {
   activeVusers, cdfFromLatest, errorCount, histogramFromLatest, tailSpread, toBucket, vusersIo, type Bucket,
-} from "../../derived-series.js";
+} from "../../derived-series.ts";
 import "../../components/select.js";
 import "../../components/chart-panel.js";
 import "../../components/skeleton.js";
-import { compareRuns, loadEndpointOptions } from "./cmds.js";
-import type { Action, State } from "./types.js";
+import { compareRuns, loadEndpointOptions } from "./cmds.ts";
+import type { Action, State } from "./types.ts";
 
 const MAX_COMPARE = 5;
 
-function rowsFor(state: State, runId: string): MetricRow[] {
+const isSelected = (state: State, id: string) => state.selected.has(id);
+const atSelectionLimit = (state: State) => state.selected.size >= MAX_COMPARE;
+const canSelectMore = not(atSelectionLimit);
+const canCompare = (state: State) => state.selected.size >= 2;
+const canToggleOn = (state: State, id: string) => and(canSelectMore, () => !isSelected(state, id))(state);
+
+function rowsFor(state: State, runId: string): Array<MetricRow & { run_id: string }> {
+  const matchesEndpoint = (row: MetricRow & { run_id: string }) => (row.endpoint ?? "") === state.endpoint;
+  const matchesRun = (row: MetricRow & { run_id: string }) => row.run_id === runId;
   return [...(state.data!.series ?? [])]
-    .filter((row) => row.run_id === runId && (row.endpoint ?? "") === state.endpoint)
+    .filter((row) => and(matchesRun, matchesEndpoint)(row))
     .sort((a, b) => a.bucket.localeCompare(b.bucket));
 }
 function runStartedAt(state: State, runId: string): string {
@@ -62,8 +71,8 @@ function bestIn(state: State, column: (r: RunRow) => number | null, lowest = tru
 
 export function view(state: State, dispatch: (a: Action) => void, run: (c: Cmd<Action>) => void): TemplateResult {
   const doCompare = () => {
+    if (!canCompare(state)) return;
     const ids = [...state.selected];
-    if (ids.length < 2) return;
     dispatch({ type: "compare_started" });
     run(compareRuns(ids, state.granularity, state.endpoint));
     if (state.endpoint === "" && ids[0]) run(loadEndpointOptions(ids[0]));
@@ -85,7 +94,7 @@ export function view(state: State, dispatch: (a: Action) => void, run: (c: Cmd<A
                 .value=${state.endpoint}
                 @change=${(e: CustomEvent<{ value: string }>) => {
                   dispatch({ type: "endpoint_changed", endpoint: e.detail.value });
-                  if (state.selected.size >= 2) {
+                  if (canCompare(state)) {
                     dispatch({ type: "compare_started" });
                     run(compareRuns([...state.selected], state.granularity, e.detail.value));
                   }
@@ -101,14 +110,14 @@ export function view(state: State, dispatch: (a: Action) => void, run: (c: Cmd<A
             .value=${state.granularity}
             @change=${(e: CustomEvent<{ value: string }>) => {
               dispatch({ type: "granularity_changed", granularity: e.detail.value as Granularity });
-              if (state.data && state.selected.size >= 2) {
+              if (state.data && canCompare(state)) {
                 dispatch({ type: "compare_started" });
                 run(compareRuns([...state.selected], e.detail.value as Granularity, state.endpoint));
               }
             }}
           ></broadside-select>
           <span class="count">${state.selected.size} selected (max ${MAX_COMPARE})</span>
-          <button class="btn primary" ?disabled=${state.selected.size < 2 || state.loading} @click=${doCompare}>
+          <button class="btn primary" ?disabled=${!canCompare(state) || state.loading} @click=${doCompare}>
             ${state.loading ? "loading…" : "compare →"}
           </button>
         </div>
@@ -119,21 +128,21 @@ export function view(state: State, dispatch: (a: Action) => void, run: (c: Cmd<A
               <tr><th>select</th><th>run</th><th>started</th><th>duration</th><th>requests</th><th>p95</th><th>errors</th><th>status</th></tr>
             </thead>
             <tbody>
-              ${state.runs.map((run) => {
-                const checked = state.selected.has(run.id);
+              ${state.runs.map((runRow) => {
+                const checked = isSelected(state, runRow.id);
                 return html`<tr class=${checked ? "selected" : ""}>
                   <td>
-                    <input type="checkbox" .checked=${checked} ?disabled=${!checked && state.selected.size >= MAX_COMPARE}
-                      aria-label="Select run ${run.id}"
-                      @change=${(e: Event) => dispatch({ type: "toggle_selected", id: run.id, checked: (e.target as HTMLInputElement).checked })} />
+                    <input type="checkbox" .checked=${checked} ?disabled=${!checked && !canToggleOn(state, runRow.id)}
+                      aria-label="Select run ${runRow.id}"
+                      @change=${(e: Event) => dispatch({ type: "toggle_selected", id: runRow.id, checked: (e.target as HTMLInputElement).checked })} />
                   </td>
-                  <td class="mono">${run.id.slice(0, 8)}</td>
-                  <td class="muted">${new Date(run.started_at).toLocaleString()}</td>
-                  <td>${formatDuration(run.duration_ms)}</td>
-                  <td>${formatNumber(run.total_requests)}</td>
-                  <td class=${latencyClass(run.p95)}>${formatMs(run.p95)}</td>
-                  <td>${formatPercent(run.error_rate)}</td>
-                  <td>${run.status}</td>
+                  <td class="mono">${runRow.id.slice(0, 8)}</td>
+                  <td class="muted">${new Date(runRow.started_at).toLocaleString()}</td>
+                  <td>${formatDuration(runRow.duration_ms)}</td>
+                  <td>${formatNumber(runRow.total_requests)}</td>
+                  <td class=${latencyClass(runRow.p95)}>${formatMs(runRow.p95)}</td>
+                  <td>${formatPercent(runRow.error_rate)}</td>
+                  <td>${runRow.status}</td>
                 </tr>`;
               })}
             </tbody>

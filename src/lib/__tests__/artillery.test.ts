@@ -1,0 +1,882 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { normalizeBatch } from ".././normalize.ts";
+
+const h = vi.hoisted(() => {
+  const sqlMock = vi.fn() as any;
+  sqlMock.mockResolvedValue([]);
+
+  return {
+    sqlMock,
+    logger: {
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+      debug: vi.fn(),
+    },
+    ingest: vi.fn(),
+    flush: vi.fn().mockResolvedValue(undefined),
+    spawn: vi.fn(),
+    mkdtemp: vi.fn(),
+    readFile: vi.fn(),
+    rm: vi.fn(),
+    mkdir: vi.fn(),
+    writeFile: vi.fn(),
+  };
+});
+
+vi.mock("node:child_process", () => ({ spawn: h.spawn }));
+vi.mock("node:fs/promises", () => ({
+  mkdtemp: h.mkdtemp,
+  readFile: h.readFile,
+  rm: h.rm,
+  mkdir: h.mkdir,
+  writeFile: h.writeFile,
+}));
+vi.mock("../../db/client.ts", () => ({ sql: h.sqlMock }));
+vi.mock("../../logger.ts", () => ({ logger: h.logger }));
+vi.mock("../../config.ts", () => ({
+  config: {
+    artillery: { reportDir: "/tmp/reports" },
+    ingestPort: 0,
+    port: 3000,
+    ingestUrl: "",
+  },
+}));
+vi.mock(".././flusher.ts", () => ({
+  metricsFlusher: { ingest: h.ingest, flush: h.flush },
+}));
+
+import {
+  isRunActive,
+  killRun,
+  parseReportPoints,
+  prepareScriptForLive,
+  processReport,
+  spawnArtillery,
+  type ArtilleryReport,
+} from ".././artillery.ts";
+
+interface FakeProc {
+  stderr: { on: ReturnType<typeof vi.fn> };
+  once: ReturnType<typeof vi.fn>;
+  on: ReturnType<typeof vi.fn>;
+  kill: ReturnType<typeof vi.fn>;
+  emit: (event: string, ...args: unknown[]) => void;
+  emitStderr: (chunk: string) => void;
+}
+
+function createProc({
+  autoSpawn = true,
+}: { autoSpawn?: boolean } = {}): FakeProc {
+  const listeners: Record<string, Array<(...args: any[]) => void>> = {};
+  const stderrListeners: Record<string, Array<(...args: any[]) => void>> = {};
+
+  const proc: FakeProc = {
+    stderr: {
+      on: vi.fn((event: string, fn: (...args: any[]) => void) => {
+        (stderrListeners[event] ??= []).push(fn);
+      }),
+    },
+    once: vi.fn((event: string, fn: (...args: any[]) => void) => {
+      (listeners[event] ??= []).push(fn);
+      if (event === "spawn" && autoSpawn) {
+        // Emulate Node: the spawn event fires after listeners are attached.
+        queueMicrotask(() => proc.emit("spawn"));
+      }
+    }),
+    on: vi.fn((event: string, fn: (...args: any[]) => void) => {
+      (listeners[event] ??= []).push(fn);
+    }),
+    kill: vi.fn(),
+    emit(event, ...args) {
+      for (const fn of [...(listeners[event] ?? [])]) fn(...args);
+    },
+    emitStderr(chunk) {
+      for (const fn of [...(stderrListeners.data ?? [])]) {
+        fn(Buffer.from(chunk));
+      }
+    },
+  };
+
+  return proc;
+}
+
+function endpointPoint(
+  points: ReturnType<typeof parseReportPoints>,
+  endpoint: string,
+) {
+  const point = points.find((candidate) => candidate.endpoint === endpoint);
+  if (!point) throw new Error(`missing endpoint point: ${endpoint}`);
+  return point;
+}
+
+const aggregateOnly: ArtilleryReport["aggregate"] = {
+  counters: {},
+  histograms: {},
+};
+
+describe("parseReportPoints", () => {
+  it("emits aggregate and per-endpoint points from a real report shape", () => {
+    const period = new Date("2026-01-01T00:00:00.000Z");
+    const report: ArtilleryReport = {
+      intermediate: [
+        {
+          period: String(period.getTime()),
+          counters: {
+            "http.requests": 10,
+            "http.responses": 10,
+            "vusers.created": 5,
+            "vusers.failed": 1,
+            "plugins.metrics-by-endpoint./api/users.codes.200": 6,
+            "plugins.metrics-by-endpoint./api/orders.codes.200": 3,
+            "plugins.metrics-by-endpoint./missing.codes.404": 1,
+            "plugins.metrics-by-endpoint./missing.errors.ETIMEDOUT": 1,
+          },
+          histograms: {
+            "http.response_time": { p50: 10, p95: 20, p99: 30 },
+            "plugins.metrics-by-endpoint.response_time./api/users": {
+              count: 6,
+              p50: 5,
+              p95: 15,
+              p99: 25,
+            },
+            "plugins.metrics-by-endpoint.response_time./api/orders": {
+              count: 3,
+              p50: 7,
+              p95: 17,
+              p99: 27,
+            },
+            "plugins.metrics-by-endpoint.response_time./missing": {
+              count: 1,
+              p50: 1,
+              p95: 2,
+              p99: 3,
+            },
+          },
+          rates: { "http.request_rate": 2 },
+        },
+      ],
+      aggregate: aggregateOnly,
+    };
+
+    const points = parseReportPoints(report, "run-1");
+
+    expect(points).toHaveLength(4);
+
+    const aggregate = endpointPoint(points, "");
+    expect(aggregate.time).toEqual(period);
+    expect(aggregate.runId).toBe("run-1");
+    expect(aggregate.rps).toBe(2);
+    expect(aggregate.p50).toBe(10);
+    expect(aggregate.p95).toBe(20);
+    expect(aggregate.p99).toBe(30);
+    expect(aggregate.errorRate).toBe(0.2);
+
+    const users = endpointPoint(points, "/api/users");
+    expect(users.rps).toBe(1.2);
+    expect(users.p50).toBe(5);
+    expect(users.p95).toBe(15);
+    expect(users.p99).toBe(25);
+    expect(users.errorRate).toBe(0);
+
+    const orders = endpointPoint(points, "/api/orders");
+    expect(orders.rps).toBe(0.6);
+
+    const missing = endpointPoint(points, "/missing");
+    expect(missing.rps).toBe(0.2);
+    expect(missing.errorRate).toBe(0.5);
+  });
+
+  it("populates vu counters and histogram quantiles from the report", () => {
+    const period = new Date("2026-01-01T00:00:00.000Z");
+    const report: ArtilleryReport = {
+      intermediate: [
+        {
+          period: String(period.getTime()),
+          counters: {
+            "http.requests": 10,
+            "vusers.started": 7,
+            "vusers.stopped": 3,
+            "vusers.created": 8,
+            "vusers.completed": 5,
+            "vusers.failed": 1,
+            "plugins.metrics-by-endpoint./api/users.errors.502": 2,
+          },
+          histograms: {
+            "http.response_time": {
+              min: 4,
+              max: 90,
+              p50: 10,
+              p75: 14,
+              p90: 18,
+              p95: 20,
+              p99: 30,
+              p999: 60,
+            },
+            "plugins.metrics-by-endpoint.response_time./api/users": {
+              count: 6,
+              min: 2,
+              max: 40,
+              p50: 5,
+              p75: 8,
+              p90: 12,
+              p95: 15,
+              p99: 25,
+              p999: 35,
+            },
+          },
+          rates: { "http.request_rate": 2 },
+        },
+      ],
+      aggregate: aggregateOnly,
+    };
+
+    const points = parseReportPoints(report, "run-1");
+
+    const aggregate = endpointPoint(points, "");
+    expect(aggregate.vusersStarted).toBe(7);
+    expect(aggregate.vusersStopped).toBe(3);
+    expect(aggregate.vusersCreated).toBe(8);
+    expect(aggregate.vusersCompleted).toBe(5);
+    expect(aggregate.errorCount).toBe(1);
+    expect(aggregate.histMin).toBe(4);
+    expect(aggregate.histMax).toBe(90);
+    expect(aggregate.histP75).toBe(14);
+    expect(aggregate.histP90).toBe(18);
+    expect(aggregate.histP999).toBe(60);
+
+    const users = endpointPoint(points, "/api/users");
+    expect(users.errorCount).toBe(2);
+    expect(users.histP75).toBe(8);
+    expect(users.histP90).toBe(12);
+    expect(users.histP999).toBe(35);
+    expect(users.histMin).toBe(2);
+    expect(users.histMax).toBe(40);
+  });
+
+  it("falls back to summaries and infers custom plugin namespaces", () => {
+    const report: ArtilleryReport = {
+      intermediate: [
+        {
+          timestamp: "2026-01-01T00:00:00.000Z",
+          counters: {
+            "http.requests": 4,
+            "custom.namespace./api.codes.200": 3,
+            "custom.namespace./api.errors.ECONNRESET": 1,
+          },
+          summaries: {
+            "http.response_time": { p50: 1, p95: 2, p99: 3 },
+            "custom.namespace.response_time./api": {
+              count: 4,
+              p50: 4,
+              p95: 5,
+              p99: 6,
+            },
+          },
+        },
+      ],
+      aggregate: aggregateOnly,
+    };
+
+    const points = parseReportPoints(report, "run-1");
+
+    expect(points).toHaveLength(2);
+
+    const aggregate = endpointPoint(points, "");
+    expect(aggregate.time).toEqual(new Date("2026-01-01T00:00:00.000Z"));
+    expect(aggregate.rps).toBe(0.4);
+    expect(aggregate.p50).toBe(1);
+
+    const endpoint = endpointPoint(points, "/api");
+    expect(endpoint.rps).toBe(0.4);
+    expect(endpoint.p50).toBe(4);
+    expect(endpoint.errorRate).toBe(0.25);
+  });
+
+  it("emits only the aggregate point when the plugin is absent", () => {
+    const report: ArtilleryReport = {
+      intermediate: [
+        {
+          period: 1767225600000,
+          counters: { "http.requests": 5 },
+          histograms: {
+            "http.response_time": { p50: 1, p95: 2, p99: 3 },
+          },
+        },
+      ],
+      aggregate: aggregateOnly,
+    };
+
+    const points = parseReportPoints(report, "run-1");
+
+    expect(points).toHaveLength(1);
+    expect(points[0].endpoint).toBe("");
+    expect(points[0].rps).toBe(0.5);
+  });
+
+  it("skips buckets without a usable timestamp", () => {
+    const report: ArtilleryReport = {
+      intermediate: [
+        { counters: { "http.requests": 1 } },
+        { period: "not-a-date", counters: { "http.requests": 1 } },
+        {
+          timestamp: new Date("2026-01-01T00:00:00.000Z"),
+          counters: { "http.requests": 2 },
+        },
+        { timestamp: 1767225700000, counters: { "http.requests": 3 } },
+      ],
+      aggregate: aggregateOnly,
+    };
+
+    const points = parseReportPoints(report, "run-1");
+
+    expect(points).toHaveLength(2);
+    expect(points[0].time).toEqual(new Date("2026-01-01T00:00:00.000Z"));
+    expect(points[1].time).toEqual(new Date(1767225700000));
+  });
+
+  it("derives rps from the bucket interval when no rate is reported", () => {
+    const start = new Date("2026-01-01T00:00:00.000Z");
+    const next = new Date(start.getTime() + 10_000);
+
+    const report: ArtilleryReport = {
+      intermediate: [
+        {
+          timestamp: start.toISOString(),
+          counters: { "http.requests": 10 },
+        },
+        {
+          timestamp: next.toISOString(),
+          counters: { "http.requests": 20 },
+        },
+      ],
+      aggregate: aggregateOnly,
+    };
+
+    const points = parseReportPoints(report, "run-1");
+
+    expect(points).toHaveLength(2);
+    expect(points[0].rps).toBe(1);
+    expect(points[1].rps).toBe(2);
+  });
+
+  it("uses histogram totals and codes when count is missing", () => {
+    const period = new Date("2026-01-01T00:00:00.000Z");
+    const report: ArtilleryReport = {
+      intermediate: [
+        {
+          timestamp: period,
+          counters: {
+            "http.requests": 8,
+            "plugins.metrics-by-endpoint./api.codes.200": 5,
+            "plugins.metrics-by-endpoint./api.errors.ECONNRESET": 1,
+          },
+          histograms: {
+            "plugins.metrics-by-endpoint.response_time./api": {
+              total: 8,
+              p50: 2,
+              p95: 4,
+              p99: 6,
+            },
+            "plugins.metrics-by-endpoint.response_time./health": {
+              p50: 1,
+              p95: 1,
+              p99: 1,
+            },
+          },
+        },
+      ],
+      aggregate: aggregateOnly,
+    };
+
+    const points = parseReportPoints(report, "run-1");
+
+    const api = endpointPoint(points, "/api");
+    expect(api.rps).toBe(0.8);
+    expect(api.errorRate).toBe(1 / 6);
+
+    const health = endpointPoint(points, "/health");
+    expect(health.rps).toBe(0);
+  });
+
+  it("ignores engine-level response-time histograms", () => {
+    const report: ArtilleryReport = {
+      intermediate: [
+        {
+          timestamp: new Date("2026-01-01T00:00:00.000Z"),
+          counters: {
+            "http.response_time.2xx": 2,
+            "http.codes.200": 2,
+          },
+          histograms: {
+            "http.response_time.2xx": { count: 2, p50: 1 },
+          },
+        },
+      ],
+      aggregate: aggregateOnly,
+    };
+
+    const points = parseReportPoints(report, "run-1");
+
+    expect(points).toHaveLength(1);
+    expect(points[0].endpoint).toBe("");
+  });
+
+  it("defaults a missing vusers counter to a single vuser", () => {
+    const report: ArtilleryReport = {
+      intermediate: [
+        {
+          timestamp: new Date("2026-01-01T00:00:00.000Z"),
+          counters: { "vusers.failed": 1 },
+        },
+      ],
+      aggregate: aggregateOnly,
+    };
+
+    const [point] = parseReportPoints(report, "run-1");
+
+    expect(point.errorRate).toBe(1);
+  });
+});
+
+describe("processReport", () => {
+  it("ingests points, updates the run, and persists the report", async () => {
+    const report: ArtilleryReport = {
+      intermediate: [
+        {
+          timestamp: "2026-01-01T00:00:00.000Z",
+          counters: { "http.requests": 10 },
+          histograms: {
+            "http.response_time": { p50: 1, p95: 2, p99: 3 },
+          },
+          rates: { "http.request_rate": 1 },
+        },
+        {
+          timestamp: "2026-01-01T00:00:10.000Z",
+          counters: { "http.requests": 20 },
+          histograms: {
+            "http.response_time": { p50: 1, p95: 2, p99: 3 },
+          },
+          rates: { "http.request_rate": 2 },
+        },
+      ],
+      aggregate: {
+        counters: {
+          "http.responses": 30,
+          "vusers.created": 10,
+          "vusers.failed": 2,
+        },
+        histograms: {
+          "http.response_time": { p50: 4, p95: 5, p99: 6 },
+        },
+      },
+    };
+    const raw = JSON.stringify(report);
+    h.readFile.mockResolvedValue(raw);
+
+    await processReport("run/1", "/tmp/artillery-run/report.json");
+
+    expect(h.readFile).toHaveBeenCalledWith(
+      "/tmp/artillery-run/report.json",
+      "utf-8",
+    );
+    // parse -> flush buffered stream -> delete provisional -> ingest report -> flush final
+    expect(h.flush).toHaveBeenCalledTimes(2);
+    expect(h.sqlMock).toHaveBeenCalledTimes(2); // delete streamed metrics, then update run
+    expect(h.sqlMock.mock.calls[0]?.join(" ")).toContain("DELETE FROM metrics");
+    expect(h.ingest).toHaveBeenCalledTimes(1);
+    expect(h.ingest.mock.calls[0][0]).toHaveLength(2);
+
+    expect(h.mkdir).toHaveBeenCalledWith("/tmp/reports", { recursive: true });
+    expect(h.writeFile).toHaveBeenCalledWith(
+      "/tmp/reports/run_1.json",
+      raw,
+      "utf-8",
+    );
+
+    const update = h.sqlMock.mock.calls[1];
+    expect(update?.[1]).toBe(10_000);
+    expect(update?.[2]).toBe(30);
+    expect(update?.[3]).toBe(4);
+    expect(update?.[4]).toBe(5);
+    expect(update?.[5]).toBe(6);
+    expect(update?.[6]).toBe(0.2);
+    expect(update?.[7]).toBe("/tmp/reports/run_1.json");
+    expect(update?.[8]).toBe("run/1");
+
+    expect(h.logger.info).toHaveBeenCalledWith(
+      expect.objectContaining({ runId: "run/1", totalRequests: 30, points: 2 }),
+      "[artillery] run completed",
+    );
+  });
+
+  it("prefers aggregate metric timestamps over bucket periods", async () => {
+    const report: ArtilleryReport = {
+      intermediate: [
+        { period: "2026-01-01T00:00:00.000Z", counters: { "http.requests": 1 } },
+        { period: "2026-01-01T00:00:10.000Z", counters: { "http.requests": 1 } },
+      ],
+      aggregate: {
+        counters: { "http.requests": 2 },
+        histograms: {},
+        firstMetricAt: 1_000,
+        lastMetricAt: 3_500,
+      },
+    };
+    h.readFile.mockResolvedValue(JSON.stringify(report));
+
+    await processReport("run-1", "/tmp/report.json");
+
+    expect(h.sqlMock.mock.calls[1]?.[1]).toBe(2_500);
+  });
+
+  it("reports zero duration when no timestamps are available", async () => {
+    const report: ArtilleryReport = {
+      intermediate: [],
+      aggregate: aggregateOnly,
+    };
+    h.readFile.mockResolvedValue(JSON.stringify(report));
+
+    await processReport("run-1", "/tmp/report.json");
+
+    expect(h.sqlMock.mock.calls[1]?.[1]).toBe(0);
+  });
+});
+
+describe("spawnArtillery", () => {
+  beforeEach(() => {
+    h.mkdtemp.mockResolvedValue("/tmp/artillery-run-1");
+    h.rm.mockResolvedValue(undefined);
+    h.mkdir.mockResolvedValue(undefined);
+    h.writeFile.mockResolvedValue(undefined);
+  });
+
+  it("spawns Artillery and processes a successful report", async () => {
+    const proc = createProc();
+    h.spawn.mockReturnValue(proc);
+
+    const report: ArtilleryReport = {
+      intermediate: [
+        {
+          timestamp: "2026-01-01T00:00:00.000Z",
+          counters: { "http.requests": 1 },
+        },
+      ],
+      aggregate: aggregateOnly,
+    };
+    h.readFile.mockImplementation(async (path: string) => {
+      if (String(path).endsWith("load.yml")) return "config:\n  target: http://localhost\nscenarios: []\n";
+      return JSON.stringify(report);
+    });
+
+    await spawnArtillery({
+      runId: "run-1",
+      scriptPath: "load.yml",
+      extraArgs: ["--environment", "staging"],
+    });
+
+    expect(h.mkdtemp).toHaveBeenCalledWith(
+      expect.stringContaining("artillery-run-1-"),
+    );
+    expect(h.spawn).toHaveBeenCalledWith(
+      "artillery",
+      expect.arrayContaining([
+        "run",
+        "/tmp/artillery-run-1/script.live.yml",
+        "-p",
+        "/tmp/artillery-run-1/broadside-reporter.cjs",
+        "--output",
+        "/tmp/artillery-run-1/report.json",
+        "--quiet",
+        "--environment",
+        "staging",
+      ]),
+      expect.objectContaining({
+        stdio: ["ignore", "pipe", "pipe"],
+        cwd: expect.any(String),
+        env: expect.objectContaining({
+          ARTILLERY_DISABLE_TELEMETRY: "1",
+          BROADSIDE_RUN_ID: "run-1",
+          BROADSIDE_INGEST_URL: "ws://127.0.0.1:3000/ws",
+        }),
+      }),
+    );
+    const argv = h.spawn.mock.calls[0]?.[1] as string[];
+    expect(argv).toContain("-p");
+    expect(argv[argv.indexOf("-p") + 1]).toBe(
+      "/tmp/artillery-run-1/broadside-reporter.cjs",
+    );
+    expect(
+      String((h.spawn.mock.calls[0]?.[2] as any)?.env?.NODE_PATH ?? ""),
+    ).not.toContain("/tmp/artillery-run-1");
+    // plugin file written for -p loading
+    expect(h.writeFile).toHaveBeenCalledWith(
+      "/tmp/artillery-run-1/broadside-reporter.cjs",
+      expect.stringContaining("broadside-reporter"),
+      expect.objectContaining({ encoding: "utf-8", flag: "wx", mode: 0o600 }),
+    );
+    expect(isRunActive("run-1")).toBe(true);
+
+    proc.emit("close", 0);
+
+    await vi.waitFor(() => {
+      expect(h.rm).toHaveBeenCalledWith("/tmp/artillery-run-1", {
+        recursive: true,
+        force: true,
+      });
+    });
+    expect(h.ingest).toHaveBeenCalledTimes(1);
+    expect(isRunActive("run-1")).toBe(false);
+  });
+
+  it("marks the run failed when the report cannot be processed", async () => {
+    const proc = createProc();
+    h.spawn.mockReturnValue(proc);
+    h.readFile.mockImplementation(async (path: string) => {
+      if (String(path).endsWith("load.yml")) return "config: {}\nscenarios: []\n";
+      throw new Error("ENOENT");
+    });
+
+    await spawnArtillery({ runId: "run-1", scriptPath: "load.yml" });
+    proc.emit("close", 0);
+
+    await vi.waitFor(() => {
+      expect(h.sqlMock).toHaveBeenCalled();
+    });
+    expect(h.logger.error).toHaveBeenCalledWith(
+      expect.objectContaining({ runId: "run-1" }),
+      "[artillery] error processing run",
+    );
+    // parse/read failure happens before deleting provisional streamed metrics
+    expect(
+      h.sqlMock.mock.calls.some((c: unknown[]) =>
+        String(c?.join(" ")).includes("DELETE FROM metrics"),
+      ),
+    ).toBe(false);
+    expect(h.rm).toHaveBeenCalled();
+  });
+
+  it("marks the run failed when Artillery exits non-zero", async () => {
+    const proc = createProc();
+    h.spawn.mockReturnValue(proc);
+    h.readFile.mockResolvedValue("config: {}\nscenarios: []\n");
+
+    await spawnArtillery({ runId: "run-1", scriptPath: "load.yml" });
+    proc.emitStderr("invalid script");
+    proc.emit("close", 3);
+
+    await vi.waitFor(() => {
+      expect(h.logger.error).toHaveBeenCalledWith(
+        {
+          runId: "run-1",
+          reason: "invalid script",
+          failureReason: "artillery_exit_nonzero",
+        },
+        "[artillery] run failed",
+      );
+    });
+    expect(h.sqlMock).toHaveBeenCalledTimes(1);
+    expect(h.rm).toHaveBeenCalled();
+  });
+
+  it("falls back to the exit code when stderr is empty", async () => {
+    const proc = createProc();
+    h.spawn.mockReturnValue(proc);
+    h.readFile.mockResolvedValue("config: {}\nscenarios: []\n");
+
+    await spawnArtillery({ runId: "run-1", scriptPath: "load.yml" });
+    proc.emit("close", 2);
+
+    await vi.waitFor(() => {
+      expect(h.logger.error).toHaveBeenCalledWith(
+        {
+          runId: "run-1",
+          reason: "artillery exited with code 2",
+          failureReason: "artillery_exit_nonzero",
+        },
+        "[artillery] run failed",
+      );
+    });
+  });
+
+  it("marks the run failed when an error arrives after spawn", async () => {
+    const proc = createProc();
+    h.spawn.mockReturnValue(proc);
+    h.readFile.mockResolvedValue("config: {}\nscenarios: []\n");
+    const err = new Error("spawn artillery ENOENT");
+
+    await spawnArtillery({ runId: "run-1", scriptPath: "load.yml" });
+    proc.emit("error", err);
+
+    await vi.waitFor(() => {
+      expect(h.logger.error).toHaveBeenCalledWith(
+        { err, runId: "run-1" },
+        "[artillery] spawn error",
+      );
+      expect(h.rm).toHaveBeenCalledWith("/tmp/artillery-run-1", {
+        recursive: true,
+        force: true,
+      });
+    });
+    expect(h.sqlMock).toHaveBeenCalledTimes(1);
+    expect(isRunActive("run-1")).toBe(false);
+  });
+
+  it("rejects when spawn throws synchronously", async () => {
+    h.spawn.mockImplementation(() => {
+      throw new Error("spawn artillery ENOENT");
+    });
+
+    await expect(
+      spawnArtillery({ runId: "run-1", scriptPath: "load.yml" }),
+    ).rejects.toThrow("spawn artillery ENOENT");
+
+    expect(isRunActive("run-1")).toBe(false);
+    expect(h.rm).toHaveBeenCalledWith("/tmp/artillery-run-1", {
+      recursive: true,
+      force: true,
+    });
+  });
+
+  it("rejects when the Artillery binary fails to start", async () => {
+    const proc = createProc({ autoSpawn: false });
+    h.spawn.mockReturnValue(proc);
+    h.readFile.mockResolvedValue("config: {}\nscenarios: []\n");
+
+    const started = spawnArtillery({ runId: "run-1", scriptPath: "load.yml" });
+    await vi.waitFor(() => {
+      expect(h.spawn).toHaveBeenCalledTimes(1);
+    });
+
+    proc.emit("error", new Error("spawn artillery ENOENT"));
+
+    await expect(started).rejects.toThrow("spawn artillery ENOENT");
+    expect(isRunActive("run-1")).toBe(false);
+    await vi.waitFor(() => {
+      expect(h.rm).toHaveBeenCalledWith("/tmp/artillery-run-1", {
+        recursive: true,
+        force: true,
+      });
+    });
+
+    // The route is responsible for marking the row failed.
+    expect(h.sqlMock).not.toHaveBeenCalled();
+  });
+
+  it("treats a killed run as terminal and records failure_reason", async () => {
+    const proc = createProc();
+    h.spawn.mockReturnValue(proc);
+    h.readFile.mockResolvedValue("config: {}\nscenarios: []\n");
+
+    await spawnArtillery({ runId: "run-1", scriptPath: "load.yml" });
+
+    expect(killRun("run-1")).toBe(true);
+    expect(proc.kill).toHaveBeenCalledWith("SIGTERM");
+    expect(isRunActive("run-1")).toBe(false);
+
+    proc.emit("close", null);
+
+    await vi.waitFor(() => {
+      expect(h.rm).toHaveBeenCalledWith("/tmp/artillery-run-1", {
+        recursive: true,
+        force: true,
+      });
+    });
+    await vi.waitFor(() => {
+      expect(h.sqlMock).toHaveBeenCalled();
+    });
+    const values = h.sqlMock.mock.calls.flat();
+    expect(values).toContain("run-1");
+    expect(values).toContain("killed");
+  });
+
+  it("reports unknown runs as inactive", () => {
+    expect(killRun("missing")).toBe(false);
+    expect(isRunActive("missing")).toBe(false);
+  });
+});
+
+
+describe("prepareScriptForLive", () => {
+  it("injects statsInterval for YAML scripts without registering a plugin", async () => {
+    h.readFile.mockResolvedValueOnce(
+      "config:\n  target: http://localhost\nscenarios: []\n",
+    );
+    h.writeFile.mockResolvedValue(undefined);
+
+    const out = await prepareScriptForLive(
+      "/tmp/artillery-run-1/load.yml",
+      "/tmp/artillery-run-1",
+    );
+
+    expect(out).toBe("/tmp/artillery-run-1/script.live.yml");
+    expect(h.readFile).toHaveBeenCalledWith(
+      "/tmp/artillery-run-1/load.yml",
+      "utf-8",
+    );
+    const written = h.writeFile.mock.calls.find(
+      (c) => c[0] === "/tmp/artillery-run-1/script.live.yml",
+    );
+    expect(written).toBeTruthy();
+    expect(written?.[2]).toEqual(
+      expect.objectContaining({ encoding: "utf-8", flag: "wx", mode: 0o600 }),
+    );
+    const text = String(written?.[1]);
+    expect(text).toContain("statsInterval: 1");
+    expect(text).not.toContain("broadside-reporter");
+    expect(text).not.toContain("plugins:");
+  });
+});
+
+describe("broadside reporter plugin contract", () => {
+  it("normalizes the plugin {run_id, points} envelope into MetricPoints", () => {
+    const out = normalizeBatch({
+      run_id: "run-1",
+      points: [
+        {
+          time_ms: 1_700_000_000_000,
+          endpoint: "/api",
+          rps: 2,
+          p50: 10,
+          p95: 20,
+          p99: 30,
+          error_rate: 0.1,
+          error_count: 1,
+          hist_min: 5,
+          hist_max: 40,
+          hist_p75: 15,
+          hist_p90: 18,
+          hist_p999: 35,
+          vusers_started: 3,
+        },
+      ],
+    }).match({
+      left: (e) => {
+        throw new Error(e.message);
+      },
+      right: (v) => v,
+    });
+
+    expect(out).toEqual([
+      expect.objectContaining({
+        runId: "run-1",
+        endpoint: "/api",
+        rps: 2,
+        p50: 10,
+        p95: 20,
+        p99: 30,
+        errorRate: 0.1,
+        errorCount: 1,
+        histMin: 5,
+        histMax: 40,
+        histP75: 15,
+        histP90: 18,
+        histP999: 35,
+        vusersStarted: 3,
+      }),
+    ]);
+  });
+});

@@ -3,12 +3,11 @@ RUN corepack enable
 
 WORKDIR /app
 
-# Install deps (server + UI). pnpm-workspace.yaml carries the build-script
-# approvals (esbuild/buf/task); without it the install fails.
+# Install deps (server + UI + workspace packages).
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY packages/fp/package.json ./packages/fp/package.json
+COPY ui/package.json ./ui/package.json
 RUN pnpm install --frozen-lockfile --prod=false
-COPY ui/package.json ui/pnpm-lock.yaml ui/pnpm-workspace.yaml ./ui/
-RUN cd ui && pnpm install --frozen-lockfile
 
 # Copy source
 COPY . .
@@ -16,10 +15,9 @@ COPY . .
 # Generate proto
 RUN pnpm proto
 
-# Build server
+# Build fp + server + UI
+RUN pnpm --filter @broadside/fp build
 RUN pnpm build
-
-# Build UI
 RUN cd ui && pnpm build
 
 # Production
@@ -28,6 +26,7 @@ RUN corepack enable
 WORKDIR /app
 
 COPY --from=base /app/node_modules ./node_modules
+COPY --from=base /app/packages/fp ./packages/fp
 COPY --from=base /app/dist ./dist
 COPY --from=base /app/ui/dist ./ui/dist
 COPY --from=base /app/package.json .

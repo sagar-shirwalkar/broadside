@@ -6,14 +6,69 @@ import { cors } from "hono/cors";
 import { compress } from "hono/compress";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { logger, type AppEnv } from "../logger.js";
-import { config } from "../config.js";
-import { normalizeBatch } from "../lib/normalize.js";
-import { metricsFlusher } from "../lib/flusher.js";
-import { createAuthMiddleware } from "./middleware/auth.js";
-import runs from "./routes/runs.js";
-import health from "./routes/health.js";
-import overview from "./routes/overview.js";
+import { logger, type AppEnv } from "../logger.ts";
+import { config } from "../config.ts";
+import { normalizeBatch } from "../lib/normalize.ts";
+import { metricsFlusher } from "../lib/flusher.ts";
+import { ingestTracker } from "../lib/ingest-tracker.ts";
+import { createAuthMiddleware } from "./middleware/auth.ts";
+import runs from "./routes/runs.ts";
+import health from "./routes/health.ts";
+import overview from "./routes/overview.ts";
+
+function registerWsIngest(app: Hono<AppEnv>): void {
+  // WebSocket ingestion
+  app.get(
+    "/ws",
+    upgradeWebSocket(() => ({
+      onMessage(event, ws) {
+        try {
+          const text = String(event.data);
+          // Bound a single message: the flusher will shed load anyway, but
+          // parsing a multi-megabyte JSON blob just to drop it is wasteful
+          // and blocks the event loop.
+          if (text.length > config.ingest.maxMessageBytes) {
+            ws.send(JSON.stringify({ error: "message too large" }));
+            return;
+          }
+          const raw = JSON.parse(text);
+          normalizeBatch(raw).match({
+            left: (err) => {
+              ws.send(JSON.stringify({ error: "invalid message", reason: err.message }));
+            },
+            right: (points) => {
+              const capped = points.slice(0, config.ingest.maxBatchPoints);
+              if (capped.length > 0) {
+                metricsFlusher.ingest(capped);
+                const runIds = [...new Set(capped.map((p) => p.runId).filter(Boolean))];
+                for (const runId of runIds) ingestTracker.touch(runId);
+                logger.debug(
+                  { points: capped.length, runs: runIds.length, runId: runIds[0] },
+                  "[ws] ingest batch",
+                );
+                if (metricsFlusher.shouldSlowDown()) {
+                  try {
+                    ws.send(
+                      JSON.stringify({
+                        type: "slow_down",
+                        target_hz: metricsFlusher.getSlowDownTargetHz(),
+                      }),
+                    );
+                    metricsFlusher.noteSlowDownSent();
+                  } catch {
+                    // best-effort control frame
+                  }
+                }
+              }
+            },
+          });
+        } catch {
+          ws.send(JSON.stringify({ error: "invalid message" }));
+        }
+      },
+    })),
+  );
+}
 
 export function createApp(): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
@@ -99,34 +154,21 @@ export function createApp(): Hono<AppEnv> {
   app.use("/api/runs/*", auth);
   app.use("/ws", auth);
 
-  // WebSocket ingestion
-  app.get("/ws", upgradeWebSocket(() => ({
-    onMessage(event, ws) {
-      try {
-        const text = String(event.data);
-        // Bound a single message: the flusher will shed load anyway, but
-        // parsing a multi-megabyte JSON blob just to drop it is wasteful
-        // and blocks the event loop.
-        if (text.length > config.ingest.maxMessageBytes) {
-          ws.send(JSON.stringify({ error: "message too large" }));
-          return;
-        }
-        const raw = JSON.parse(text);
-        const points = normalizeBatch(raw);
-        const capped = points.slice(0, config.ingest.maxBatchPoints);
-        if (capped.length > 0) {
-          metricsFlusher.ingest(capped);
-        }
-      } catch {
-        ws.send(JSON.stringify({ error: "invalid message" }));
-      }
-    },
-  })));
+  registerWsIngest(app);
 
   // REST API
   app.route("/api/runs", runs);
   app.route("/api/health", health);
   app.route("/api/overview", overview);
+
+  // Probe aliases
+  app.get("/livez", (c) =>
+    c.json({ status: "ok", uptime: process.uptime(), timestamp: new Date().toISOString() }),
+  );
+  app.get("/readyz", async (c) => {
+    const res = await health.request("/ready");
+    return new Response(res.body, { status: res.status, headers: res.headers });
+  });
 
   // Dashboard (built into config.ui.distDir). Missing files fall through to
   // the notFound handler below, which serves the SPA entry point. The entry
@@ -145,6 +187,8 @@ export function createApp(): Hono<AppEnv> {
       method !== "GET" ||
       path.startsWith("/api/") ||
       path === "/ws" ||
+      path === "/livez" ||
+      path === "/readyz" ||
       assetLike ||
       uiIndexHtml === null
     ) {
@@ -153,5 +197,34 @@ export function createApp(): Hono<AppEnv> {
     return c.html(uiIndexHtml);
   });
 
+  return app;
+}
+
+/** Minimal app for a dedicated ingest listener (separate port/process budget). */
+export function createIngestApp(): Hono<AppEnv> {
+  const app = new Hono<AppEnv>();
+  const auth = createAuthMiddleware(config.auth.token);
+
+  app.use(
+    cors({
+      origin: config.cors.origins.includes("*") ? "*" : config.cors.origins,
+      allowMethods: ["GET", "OPTIONS"],
+      allowHeaders: ["Content-Type", "Authorization"],
+      maxAge: 600,
+    }),
+  );
+
+  app.use("/ws", auth);
+  registerWsIngest(app);
+
+  app.get("/livez", (c) =>
+    c.json({ status: "ok", uptime: process.uptime(), timestamp: new Date().toISOString() }),
+  );
+  app.get("/readyz", async (c) => {
+    const res = await health.request("/ready");
+    return new Response(res.body, { status: res.status, headers: res.headers });
+  });
+
+  app.notFound((c) => c.json({ error: "not found" }, 404));
   return app;
 }

@@ -1,6 +1,6 @@
 import { Hono } from "hono";
-import { sql } from "../../db/client.js";
-import { config } from "../../config.js";
+import { sql } from "../../db/client.ts";
+import { config } from "../../config.ts";
 
 /**
  * Overview aggregates for the dashboard's landing page.
@@ -296,7 +296,7 @@ async function overviewRegressions(): Promise<Record<string, unknown>[]> {
 async function overviewRecentRuns(): Promise<Record<string, unknown>[]> {
   const rows = (await sql`
     SELECT id, started_at, duration_ms, total_requests,
-           p50, p95, p99, error_rate, status
+           p50, p95, p99, error_rate, status, failure_reason, partial_data, dropped_points
     FROM runs
     ORDER BY started_at DESC
     LIMIT 5

@@ -1,4 +1,4 @@
-import type { CompareResponse, EndpointRow, Granularity, RunRow } from "../../types.js";
+import type { CompareResponse, EndpointRow, Granularity, RunRow } from "../../types.ts";
 
 export interface State {
   readonly runs: RunRow[];

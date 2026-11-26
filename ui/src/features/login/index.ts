@@ -1,10 +1,10 @@
 import { LitElement, css } from "lit";
 import { customElement } from "lit/decorators.js";
-import type { Cmd } from "../../core/types.js";
-import { runCmd } from "../../core/cmd.js";
-import { initialState, type Action, type State } from "./types.js";
-import { update } from "./update.js";
-import { view } from "./view.js";
+import type { Cmd } from "../../core/types.ts";
+import { runCmd } from "../../core/cmd.ts";
+import { initialState, type Action, type State } from "./types.ts";
+import { update } from "./update.ts";
+import { view } from "./view.ts";
 
 export { initialState, update, view };
 export type { State, Action };

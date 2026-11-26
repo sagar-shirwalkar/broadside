@@ -1,4 +1,4 @@
-import type { RunRow } from "../../types.js";
+import type { RunRow } from "../../types.ts";
 
 export interface State {
   readonly runs: RunRow[];

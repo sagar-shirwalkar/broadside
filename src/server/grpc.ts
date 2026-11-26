@@ -3,11 +3,11 @@ import {
   Ingest,
   type MetricPoint as ProtoMetricPoint,
   type MetricBatch as ProtoMetricBatch,
-} from "../gen/metrics/v1/ingest_pb.js";
-import { metricsFlusher } from "../lib/flusher.js";
-import { config } from "../config.js";
-import { logger } from "../logger.js";
-import type { MetricPoint } from "../types.js";
+} from "../gen/metrics/v1/ingest_pb.ts";
+import { metricsFlusher } from "../lib/flusher.ts";
+import { config } from "../config.ts";
+import { logger } from "../logger.ts";
+import type { MetricPoint } from "../types.ts";
 
 // This is a compile-time check: if the import above fails, tsc errors.
 // No runtime cost. No dynamic import. Just makes the dependency explicit.

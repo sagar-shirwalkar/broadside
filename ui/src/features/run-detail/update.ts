@@ -1,19 +1,26 @@
-import type { Action, State } from "./types.js";
+import { Maybe } from "@broadside/fp/maybe";
+import type { Action, State } from "./types.ts";
 
 export function update(state: State, action: Action): State {
   switch (action.type) {
     case "set_run_id":
       return { ...state, runId: action.runId };
     case "load_started":
-      return { ...state, loading: true, missing: false };
-    case "run_loaded":
-      return {
-        ...state,
-        run: action.run,
-        granularity: (action.run.duration_ms ?? Infinity) < 120_000 ? "10s" : "1m",
-      };
-    case "missing":
-      return { ...state, missing: true };
+      return { ...state, loading: true, run: Maybe.nothing() };
+    case "run_resolved":
+      return action.run.match({
+        just: (run) => ({
+          ...state,
+          loading: false,
+          run: Maybe.just(run),
+          granularity: (run.duration_ms ?? Infinity) < 120_000 ? "10s" : "1m",
+        }),
+        nothing: () => ({
+          ...state,
+          loading: false,
+          run: Maybe.nothing(),
+        }),
+      });
     case "metrics_loaded":
       return { ...state, rows: action.rows };
     case "previous_loaded":

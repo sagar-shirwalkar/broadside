@@ -1,16 +1,20 @@
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { parse as parseYaml } from "yaml";
-import { sql } from "../../db/client.js";
-import { logger } from "../../logger.js";
+import { Either } from "@broadside/fp/either";
+import { Maybe } from "@broadside/fp/maybe";
+import { sql } from "../../db/client.ts";
+import { logger } from "../../logger.ts";
 import {
   spawnArtillery,
   killRun,
   isRunActive,
   activeRunCount,
-} from "../../lib/artillery.js";
-import { config } from "../../config.js";
-import type { PhaseAnnotation } from "../../types.js";
+} from "../../lib/artillery.ts";
+import { config } from "../../config.ts";
+import type { PhaseAnnotation } from "../../types.ts";
+
+type HttpError = { status: 400 | 404 | 409 | 413 | 429 | 500; body: { error: string } };
 
 const runs = new Hono();
 
@@ -58,6 +62,25 @@ function parseCompareIds(value: string | undefined): string[] {
 
 // ─── List runs (paginated) ───
 
+function encodeCursor(startedAt: unknown, id: string): string {
+  const ts = startedAt instanceof Date ? startedAt.toISOString() : String(startedAt);
+  return Buffer.from(`${ts}|${id}`, "utf8").toString("base64url");
+}
+
+function decodeCursor(cursor: string): { startedAt: string; id: string } | null {
+  try {
+    const raw = Buffer.from(cursor, "base64url").toString("utf8");
+    const idx = raw.lastIndexOf("|");
+    if (idx <= 0) return null;
+    const startedAt = raw.slice(0, idx);
+    const id = raw.slice(idx + 1);
+    if (!id || Number.isNaN(Date.parse(startedAt))) return null;
+    return { startedAt, id };
+  } catch {
+    return null;
+  }
+}
+
 runs.get("/", async (c) => {
   const limit = parseIntParam(
     c.req.query("limit"),
@@ -75,14 +98,40 @@ runs.get("/", async (c) => {
   );
   if (offset === null) return c.json({ error: "invalid offset" }, 400);
 
-  const rows = await sql`
-    SELECT id, started_at, duration_ms, total_requests,
-           p50, p95, p99, error_rate, status
-    FROM runs
-    ORDER BY started_at DESC
-    LIMIT ${limit}
-    OFFSET ${offset}
-  `;
+  const cursor = c.req.query("cursor");
+  const decoded = cursor ? decodeCursor(cursor) : null;
+  if (cursor && !decoded) return c.json({ error: "invalid cursor" }, 400);
+
+  const rows = decoded
+    ? await sql`
+        SELECT id, started_at, duration_ms, total_requests,
+               p50, p95, p99, error_rate, status, failure_reason, partial_data, dropped_points
+        FROM runs
+        WHERE (started_at, id) < (${decoded.startedAt}::timestamptz, ${decoded.id})
+        ORDER BY started_at DESC, id DESC
+        LIMIT ${limit}
+      `
+    : await sql`
+        SELECT id, started_at, duration_ms, total_requests,
+               p50, p95, p99, error_rate, status, failure_reason, partial_data, dropped_points
+        FROM runs
+        ORDER BY started_at DESC, id DESC
+        LIMIT ${limit}
+        OFFSET ${offset}
+      `;
+
+  const payload = JSON.stringify(rows);
+  const etag = `W/"runs-${Buffer.from(payload).length}-${rows.length}"`;
+  c.header("Cache-Control", "private, max-age=5");
+  c.header("ETag", etag);
+  c.header("X-Pagination-Modes", "offset,cursor");
+  if (rows.length > 0) {
+    const last = rows[rows.length - 1] as any;
+    c.header("X-Next-Cursor", encodeCursor(last.started_at, String(last.id)));
+  }
+  if (c.req.header("if-none-match") === etag) {
+    return c.body(null, 304);
+  }
   return c.json(rows);
 });
 
@@ -91,35 +140,51 @@ runs.get("/", async (c) => {
 
 runs.get("/compare", async (c) => {
   const ids = parseCompareIds(c.req.query("ids"));
-
-  if (ids.length === 0) {
-    return c.json({ error: "ids is required" }, 400);
-  }
-  if (ids.length < 2) {
-    return c.json({ error: "at least two ids are required" }, 400);
-  }
-  if (ids.length > MAX_COMPARE_IDS) {
-    return c.json(
-      { error: `at most ${MAX_COMPARE_IDS} ids are allowed` },
-      400,
-    );
-  }
-
   const granularity = parseGranularity(c.req.query("granularity"));
-  if (!granularity) {
-    return c.json({ error: "invalid granularity" }, 400);
+
+  const validated:
+    | { ok: true; ids: string[]; granularity: Granularity }
+    | { ok: false; err: HttpError } = (() => {
+    if (ids.length === 0) {
+      return { ok: false, err: { status: 400, body: { error: "ids is required" } } };
+    }
+    if (ids.length < 2) {
+      return { ok: false, err: { status: 400, body: { error: "at least two ids are required" } } };
+    }
+    if (ids.length > MAX_COMPARE_IDS) {
+      return {
+        ok: false,
+        err: { status: 400, body: { error: `at most ${MAX_COMPARE_IDS} ids are allowed` } },
+      };
+    }
+    if (!granularity) {
+      return { ok: false, err: { status: 400, body: { error: "invalid granularity" } } };
+    }
+    return { ok: true, ids, granularity };
+  })();
+
+  const result: Either<HttpError, { ids: string[]; granularity: Granularity }> = validated.ok
+    ? Either.right({ ids: validated.ids, granularity: validated.granularity })
+    : Either.left(validated.err);
+
+  if (result.isLeft()) {
+    return result.match({ left: (err) => c.json(err.body, err.status), right: () => c.json({}) });
   }
 
+  const { ids: validIds, granularity: validGranularity } = result.match({
+    left: () => ({ ids: [] as string[], granularity: "1m" as Granularity }),
+    right: (v) => v,
+  });
   const from = parseTime(c.req.query("from"));
   const to = parseTime(c.req.query("to"));
   const endpoint = c.req.query("endpoint");
-  const view = `metrics_${granularity}`;
+  const view = `metrics_${validGranularity}`;
 
   const runRows = await sql`
     SELECT id, started_at, duration_ms, total_requests,
-           p50, p95, p99, error_rate, status
+           p50, p95, p99, error_rate, status, failure_reason, partial_data, dropped_points
     FROM runs
-    WHERE id = ANY(${ids})
+    WHERE id = ANY(${validIds})
     ORDER BY started_at DESC
   `;
 
@@ -129,7 +194,7 @@ runs.get("/compare", async (c) => {
                vusers_started, vusers_stopped, vusers_created, vusers_completed,
                error_count, hist_min, hist_max, hist_p75, hist_p90, hist_p999
         FROM ${sql.identifier(view)}
-        WHERE run_id = ANY(${ids})
+        WHERE run_id = ANY(${validIds})
           AND bucket >= COALESCE(${from}::timestamptz, '-infinity')
           AND bucket <= COALESCE(${to}::timestamptz, 'infinity')
           AND endpoint = ${endpoint}
@@ -140,7 +205,7 @@ runs.get("/compare", async (c) => {
                vusers_started, vusers_stopped, vusers_created, vusers_completed,
                error_count, hist_min, hist_max, hist_p75, hist_p90, hist_p999
         FROM ${sql.identifier(view)}
-        WHERE run_id = ANY(${ids})
+        WHERE run_id = ANY(${validIds})
           AND bucket >= COALESCE(${from}::timestamptz, '-infinity')
           AND bucket <= COALESCE(${to}::timestamptz, 'infinity')
         ORDER BY bucket, run_id, endpoint
@@ -156,8 +221,14 @@ runs.get("/:id", async (c) => {
   const rows = await sql`
     SELECT * FROM runs WHERE id = ${id}
   `;
-  if (rows.length === 0) return c.json({ error: "not found" }, 404);
-  return c.json(rows[0]);
+  const result = Maybe.fromNullable(rows[0]).toEither<HttpError>(() => ({
+    status: 404,
+    body: { error: "not found" },
+  }));
+  return result.match({
+    left: (err) => c.json(err.body, err.status),
+    right: (run) => c.json(run),
+  });
 });
 
 // ─── Endpoint listing ───
@@ -356,7 +427,9 @@ runs.get("/:id/live", async (c) => {
     while (!stream.aborted) {
       const rows = endpoint !== undefined
         ? await sql`
-            SELECT time, endpoint, rps, p50, p95, p99, error_rate
+            SELECT time, endpoint, rps, p50, p95, p99, error_rate,
+                   vusers_started, vusers_stopped, vusers_created, vusers_completed,
+                   error_count, hist_min, hist_max, hist_p75, hist_p90, hist_p999
             FROM metrics
             WHERE run_id = ${id}
               AND (time, COALESCE(endpoint, '')) > (${cursorTime}::timestamptz, ${cursorEndpoint})
@@ -366,7 +439,9 @@ runs.get("/:id/live", async (c) => {
             LIMIT ${LIVE_PAGE_SIZE}
           `
         : await sql`
-            SELECT time, endpoint, rps, p50, p95, p99, error_rate
+            SELECT time, endpoint, rps, p50, p95, p99, error_rate,
+                   vusers_started, vusers_stopped, vusers_created, vusers_completed,
+                   error_count, hist_min, hist_max, hist_p75, hist_p90, hist_p999
             FROM metrics
             WHERE run_id = ${id}
               AND (time, COALESCE(endpoint, '')) > (${cursorTime}::timestamptz, ${cursorEndpoint})
@@ -386,7 +461,7 @@ runs.get("/:id/live", async (c) => {
       }
 
       const runRows = await sql`
-        SELECT status, duration_ms, total_requests, p50, p95, p99, error_rate
+        SELECT status, duration_ms, total_requests, p50, p95, p99, error_rate, failure_reason, partial_data, dropped_points
         FROM runs
         WHERE id = ${id}
       `;
@@ -458,7 +533,7 @@ runs.post("/", async (c) => {
     });
   } catch (err) {
     logger.error({ err, runId }, "[artillery] failed to start run");
-    await sql`UPDATE runs SET status = 'failed' WHERE id = ${runId}`;
+    await sql`UPDATE runs SET status = 'failed', failure_reason = ${"start_failed"} WHERE id = ${runId}`;
     return c.json({ error: "failed to start run" }, 500);
   }
 
@@ -472,12 +547,22 @@ runs.delete("/:id", async (c) => {
 
   if (isRunActive(id)) {
     killRun(id);
-    await sql`UPDATE runs SET status = 'failed' WHERE id = ${id}`;
-    return c.json({ id, status: "killed" });
+    await sql`
+      UPDATE runs
+      SET status = 'failed', failure_reason = COALESCE(failure_reason, ${"killed"})
+      WHERE id = ${id}
+    `;
+    return c.json({ id, status: "killed", failure_reason: "killed" });
   }
 
   const rows = await sql`SELECT id FROM runs WHERE id = ${id}`;
-  if (rows.length === 0) return c.json({ error: "not found" }, 404);
+  const found = Maybe.fromNullable(rows[0]).toEither<HttpError>(() => ({
+    status: 404,
+    body: { error: "not found" },
+  }));
+  if (found.isLeft()) {
+    return found.match({ left: (err) => c.json(err.body, err.status), right: () => c.json({}) });
+  }
 
   // Delete completed run + its metrics
   await sql`DELETE FROM metrics WHERE run_id = ${id}`;

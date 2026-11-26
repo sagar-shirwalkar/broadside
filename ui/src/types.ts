@@ -12,6 +12,9 @@ export interface RunRow {
   p99: number | null;
   error_rate: number | null;
   status: RunStatus;
+  failure_reason?: string | null;
+  partial_data?: boolean | null;
+  dropped_points?: number | string | null;
   config_yaml: string | null;
   json_path: string | null;
 }
@@ -70,9 +73,27 @@ export interface CompareResponse {
 
 export interface HealthResponse {
   status: "ok" | "degraded";
+  healthy?: boolean;
+  services?: {
+    dashboard: "ok" | "error";
+    ingest: "ok" | "error";
+    database: "ok" | "error";
+  };
   uptime: number;
   database: { status: "ok" | "error" };
-  flusher: { buffered: number; dropped: number; flushed: number };
+  flusher: {
+    buffered: number;
+    dropped: number;
+    flushed: number;
+    dbWriteErrors?: number;
+    lastFlushAt?: string | null;
+    lastFlushDurationMs?: number;
+    maxBuffered?: number;
+    slowDownSent?: number;
+    shards?: number;
+    flushLatencyMs?: { p50: number; p95: number; p99: number };
+    ringDepth?: { current: number; maxLastMinute: number };
+  };
   timestamp: string;
 }
 

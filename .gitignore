@@ -1,3 +1,6 @@
+# Editor artifacts
+.DS_Store/
+
 # Node artifacts
 node_modules/
 .pnpm-store/
@@ -6,6 +9,7 @@ node_modules/
 dist/
 ui/dist/
 coverage/
+data/
 
 # Local load-test scripts
 load-tests/
@@ -21,6 +25,9 @@ AGENTS.md
 # UI test output
 ui/test-results/
 ui/playwright-report/
+
+# Local Docker Compose overrides (copy from docker-compose.override.example.yml)
+docker-compose.override.yml
 
 # Env vars
 .env

@@ -1,2 +1,2 @@
-export * from "../features/endpoint-select/index.js";
+export * from "../features/endpoint-select/index.ts";
 import "../features/endpoint-select/index.js";

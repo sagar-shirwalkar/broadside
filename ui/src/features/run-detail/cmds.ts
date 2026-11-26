@@ -1,20 +1,26 @@
-import type { Cmd } from "../../core/types.js";
-import { api, apiGet, ApiError } from "../../services/api.js";
-import type { ChartSeries, EndpointRow, Granularity, MetricRow, PhaseAnnotation, RawRow, RunRow } from "../../types.js";
-import { num } from "../../types.js";
-import type { Action, PanelKey } from "./types.js";
+import { Maybe } from "@broadside/fp/maybe";
+import type { Cmd } from "../../core/types.ts";
+import { api, apiGet, ApiError } from "../../services/api.ts";
+import type { ChartSeries, EndpointRow, Granularity, MetricRow, PhaseAnnotation, RawRow, RunRow } from "../../types.ts";
+import { num } from "../../types.ts";
+import type { Action, PanelKey } from "./types.ts";
 
 const MAX_ENDPOINT_SERIES = 8;
 
+async function loadRun(runId: string): Promise<Maybe<RunRow>> {
+  try {
+    const run = await apiGet<RunRow>(`/api/runs/${encodeURIComponent(runId)}`);
+    return Maybe.fromNullable(run);
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 404) return Maybe.nothing();
+    return Maybe.nothing();
+  }
+}
+
 export function fetchRun(runId: string): Cmd<Action> {
   return async () => {
-    try {
-      const run = await apiGet<RunRow>(`/api/runs/${encodeURIComponent(runId)}`);
-      return { type: "run_loaded", run };
-    } catch (err) {
-      if (err instanceof ApiError && err.status === 404) return { type: "missing" };
-      return { type: "loading_done" };
-    }
+    const run = await loadRun(runId);
+    return { type: "run_resolved", run };
   };
 }
 

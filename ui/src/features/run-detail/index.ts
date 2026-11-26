@@ -1,7 +1,14 @@
 import { LitElement, css, html } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import { ref } from "lit/directives/ref.js";
-import { api, apiGet, ApiError, RUN_STATUS_EVENT } from "../../services/api.js";
+import { Maybe } from "@broadside/fp/maybe";
+import {
+  api,
+  apiGet,
+  ApiError,
+  RUN_STATUS_EVENT,
+  sseUrl,
+} from "../../services/api.ts";
 import type {
   ChartPoint,
   ChartSeries,
@@ -11,8 +18,8 @@ import type {
   PhaseAnnotation,
   RawRow,
   RunRow,
-} from "../../types.js";
-import { num } from "../../types.js";
+} from "../../types.ts";
+import { num } from "../../types.ts";
 import {
   activeVusers,
   cdfFromLatest,
@@ -21,15 +28,15 @@ import {
   tailSpread,
   toBucket,
   vusersIo,
-} from "../../derived-series.js";
-import { decimateForRender } from "../../lttb.js";
+} from "../../derived-series.ts";
+import { decimateForRender } from "../../lib/lttb.ts";
 import {
   formatDuration,
   formatMs,
   formatNumber,
   formatPercent,
-} from "../../format.js";
-import { navigate } from "../../router.js";
+} from "../../lib/format.ts";
+import { navigate } from "../../lib/router.ts";
 import "../../components/kpi-card.js";
 import "../../components/chart-panel.js";
 import "../../components/endpoint-select.js";
@@ -45,6 +52,35 @@ const PANELS = ["rps", "latency", "errors", "volume"] as const;
 type PanelKey = (typeof PANELS)[number];
 
 const MAX_ENDPOINT_SERIES = 8;
+const LIVE_BUFFER = 600;
+
+interface LivePoint {
+  time: string;
+  endpoint: string;
+  rps: number | null;
+  p50: number | null;
+  p95: number | null;
+  p99: number | null;
+  error_rate: number | null;
+  vusers_started?: number | string | null;
+  vusers_stopped?: number | string | null;
+  vusers_created?: number | string | null;
+  vusers_completed?: number | string | null;
+  error_count?: number | string | null;
+  hist_min?: number | null;
+  hist_max?: number | null;
+  hist_p75?: number | null;
+  hist_p90?: number | null;
+  hist_p999?: number | null;
+}
+
+function parseSsePayload<T>(text: string): T | null {
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    return null;
+  }
+}
 
 /** Steady-state-friendly tooltips (one scannable line each). */
 const INFO = {
@@ -74,8 +110,7 @@ const INFO = {
 export class RunDetail extends LitElement {
   @property() runId = "";
 
-  @state() private run: RunRow | null = null;
-  @state() private missing = false;
+  @state() private run: Maybe<RunRow> = Maybe.nothing();
   @state() private rows: MetricRow[] = [];
   @state() private rawByPanel = new Map<PanelKey, RawRow[]>();
   @state() private endpoint = "";
@@ -94,6 +129,13 @@ export class RunDetail extends LitElement {
   @state() private confirmOpen = false;
   @state() private confirmBusy = false;
 
+  // Live streaming (merged into detail view while run is running)
+  @state() private live = false;
+  @state() private livePoints: LivePoint[] = [];
+  @state() private liveBootstrapping = false;
+  @state() private liveReconnecting = false;
+  private liveSource: EventSource | null = null;
+
   override connectedCallback() {
     super.connectedCallback();
     void this.loadAll();
@@ -102,6 +144,14 @@ export class RunDetail extends LitElement {
   override disconnectedCallback() {
     super.disconnectedCallback();
     this.endpointObserver?.disconnect();
+    this.stopLiveStream();
+  }
+
+  private stopLiveStream() {
+    this.liveSource?.close();
+    this.liveSource = null;
+    this.live = false;
+    this.liveReconnecting = false;
   }
 
   /** Arms the per-endpoint fetch when its slot approaches the viewport. */
@@ -124,36 +174,61 @@ export class RunDetail extends LitElement {
     this.endpointObserver.observe(el);
   };
 
-  private async loadAll() {
-    this.loading = true;
+  private async loadRun(): Promise<Maybe<RunRow>> {
     try {
-      this.run = await apiGet<RunRow>(
+      const run = await apiGet<RunRow>(
         `/api/runs/${encodeURIComponent(this.runId)}`,
       );
-      // A 1-minute rollup collapses sub-2-minute runs into a single
-      // bucket — offer the 10s CAGG instead so charts have shape.
-      this.granularity =
-        (this.run.duration_ms ?? Infinity) < 120_000 ? "10s" : "1m";
-      window.dispatchEvent(
-        new CustomEvent(RUN_STATUS_EVENT, {
-          detail: this.run.status,
-          bubbles: true,
-          composed: true,
-        }),
-      );
-      // Deliberately NOT loadEndpointSeries — see the sentinel observer.
-      await Promise.all([
-        this.loadMetrics(),
-        this.loadPrevious(),
-        this.loadAnnotations(),
-      ]);
+      return Maybe.fromNullable(run);
     } catch (err) {
+      // 404 and other load errors collapse to absence so the UI shows not-found
+      // instead of spinning; missing is represented as Maybe.nothing().
       if (err instanceof ApiError && err.status === 404) {
-        this.missing = true;
+        return Maybe.nothing();
       }
-    } finally {
-      this.loading = false;
+      return Maybe.nothing();
     }
+  }
+
+  private async loadAll() {
+    this.loading = true;
+    const result = await this.loadRun();
+    this.run = result;
+    await result.match({
+      nothing: async () => {},
+      just: async (run) => {
+        // A 1-minute rollup collapses sub-2-minute runs into a single
+        // bucket — offer the 10s CAGG instead so charts have shape.
+        this.granularity =
+          (run.duration_ms ?? Infinity) < 120_000 ? "10s" : "1m";
+        window.dispatchEvent(
+          new CustomEvent(RUN_STATUS_EVENT, {
+            detail: run.status,
+            bubbles: true,
+            composed: true,
+          }),
+        );
+
+        if (run.status === "running") {
+          // Live mode: stream raw points into charts while run is in progress.
+          this.rows = [];
+          this.live = true;
+          this.livePoints = [];
+          this.liveBootstrapping = true;
+          await Promise.all([this.loadPrevious(), this.loadAnnotations()]);
+          void this.seedLive();
+          this.connectLive();
+        } else {
+          this.stopLiveStream();
+          await Promise.all([
+            this.loadMetrics(),
+            this.loadPrevious(),
+            this.loadAnnotations(),
+          ]);
+        }
+      },
+    });
+    this.loading = false;
   }
 
   private metricParams(): string {
@@ -162,11 +237,38 @@ export class RunDetail extends LitElement {
     return params.toString();
   }
 
+  private liveRows(): MetricRow[] {
+    return this.livePoints.map((p) => ({
+      bucket: p.time,
+      endpoint: p.endpoint,
+      rps: p.rps,
+      p50: p.p50,
+      p95: p.p95,
+      p99: p.p99,
+      error_rate: p.error_rate,
+      samples: 1,
+      vusers_started: p.vusers_started ?? null,
+      vusers_stopped: p.vusers_stopped ?? null,
+      vusers_created: p.vusers_created ?? null,
+      vusers_completed: p.vusers_completed ?? null,
+      error_count: p.error_count ?? null,
+      hist_min: p.hist_min ?? null,
+      hist_max: p.hist_max ?? null,
+      hist_p75: p.hist_p75 ?? null,
+      hist_p90: p.hist_p90 ?? null,
+      hist_p999: p.hist_p999 ?? null,
+    }));
+  }
+
+  private effectiveRows(): MetricRow[] {
+    return this.live ? this.liveRows() : this.rows;
+  }
+
   /** The rows for the selected endpoint only. Without this filter, the
    *  aggregate and per-endpoint rows blend into a single muddy series
    *  and cumulative VUs/error counts double-count. */
   private viewRows(): MetricRow[] {
-    return this.rows.filter((r) => (r.endpoint ?? "") === this.endpoint);
+    return this.effectiveRows().filter((r) => (r.endpoint ?? "") === this.endpoint);
   }
 
   private async loadMetrics() {
@@ -175,14 +277,91 @@ export class RunDetail extends LitElement {
     );
   }
 
+  private async seedLive() {
+    try {
+      const since = new Date(Date.now() - LIVE_BUFFER * 1000).toISOString();
+      const raw = await apiGet<RawRow[]>(
+        `/api/runs/${encodeURIComponent(this.runId)}/raw?from=${encodeURIComponent(since)}`,
+      );
+      if (raw.length) {
+        this.livePoints = [...this.livePoints, ...(raw as LivePoint[])].slice(-LIVE_BUFFER);
+      }
+    } catch {
+      // best-effort; stream will catch up
+    } finally {
+      this.liveBootstrapping = false;
+    }
+  }
+
+  private connectLive() {
+    this.liveSource?.close();
+    const params = new URLSearchParams({ interval_ms: "1000" });
+    const url = sseUrl(`/api/runs/${encodeURIComponent(this.runId)}/live?${params}`);
+    const source = new EventSource(url);
+    this.liveSource = source;
+
+    source.addEventListener("metric", (event) => {
+      const data = parseSsePayload<LivePoint>((event as MessageEvent).data);
+      if (!data) return;
+      this.livePoints = [...this.livePoints, data].slice(-LIVE_BUFFER);
+      this.liveReconnecting = false;
+    });
+
+    source.addEventListener("run", (event) => {
+      const summary = parseSsePayload<{
+        status: RunRow["status"];
+        duration_ms: number | null;
+        total_requests: number | null;
+        p50: number | null;
+        p95: number | null;
+        p99: number | null;
+        error_rate: number | null;
+        failure_reason?: string | null;
+        partial_data?: boolean | null;
+        dropped_points?: number | string | null;
+      }>((event as MessageEvent).data);
+      if (!summary) return;
+      source.close();
+      this.liveSource = null;
+      this.live = false;
+      this.liveReconnecting = false;
+      this.livePoints = [];
+      if (this.run.isJust()) {
+        this.run = this.run.map((run) => ({ ...run, ...summary }) as RunRow);
+      }
+      window.dispatchEvent(
+        new CustomEvent(RUN_STATUS_EVENT, {
+          detail: summary.status,
+          bubbles: true,
+          composed: true,
+        }),
+      );
+      // Reload full completed view (run, CAGG metrics, annotations, deltas).
+      void this.loadAll();
+    });
+
+    source.onerror = () => {
+      if (this.live && this.liveSource === source) {
+        this.liveReconnecting = source.readyState === EventSource.CONNECTING;
+      }
+    };
+  }
+
+  // (reload handled via loadAll() on completion)
+
   private async loadPrevious() {
+    const current = this.run.toNullable();
+    if (!current) {
+      this.previous = null;
+      return;
+    }
     try {
       const list = await apiGet<RunRow[]>("/api/runs?limit=100");
-      const started = new Date(this.run!.started_at).getTime();
+      const started = new Date(current.started_at).getTime();
       this.previous =
         list.find(
           (row) =>
-            row.id !== this.run!.id &&
+            row.id !== current.id &&
             new Date(row.started_at).getTime() < started,
         ) ?? null;
     } catch {
@@ -277,8 +456,6 @@ export class RunDetail extends LitElement {
   }
 
   private rawSeries(key: PanelKey, raw: RawRow[]): ChartSeries[] {
-    // Zoomed raw data can be huge; decimate to the render cap (LTTB)
-    // before building SVG paths.
     const pts = (pick: (r: RawRow) => number | null) =>
       decimateForRender(
         raw
@@ -300,8 +477,6 @@ export class RunDetail extends LitElement {
         return [{ name: "req/s", colorIndex: 4, points: pts((r) => r.rps) }];
     }
   }
-
-  // ─── Derived new-chart series ───
 
   private buckets() {
     return this.viewRows().map((r) => toBucket(r, new Date(r.bucket).getTime()));
@@ -332,6 +507,7 @@ export class RunDetail extends LitElement {
   }
 
   private async onZoom(event: CustomEvent<{ from: number; to: number }>, key: PanelKey) {
+    if (this.live) return;
     const { from, to } = event.detail;
     const params = new URLSearchParams({
       from: new Date(from).toISOString(),
@@ -365,10 +541,11 @@ export class RunDetail extends LitElement {
     this.endpoint = event.detail.endpoint;
     this.zoomByPanel = new Map();
     this.rawByPanel = new Map();
-    void this.loadMetrics();
+    if (!this.live) void this.loadMetrics();
   }
 
   private onGranularityChange(event: CustomEvent<{ value: string }>) {
+    if (this.live) return;
     this.granularity = event.detail.value as Granularity;
     this.zoomByPanel = new Map();
     this.rawByPanel = new Map();
@@ -390,10 +567,10 @@ export class RunDetail extends LitElement {
   }
 
   override render() {
-    if (this.missing) {
+    if (!this.loading && this.run.isNothing()) {
       return html`<broadside-not-found message="Run not found"></broadside-not-found>`;
     }
-    if (this.loading || !this.run) {
+    if (this.loading || this.run.isNothing()) {
       return html`<div class="page">
         <div class="kpis">
           ${[0, 1, 2, 3, 4, 5].map(
@@ -406,7 +583,7 @@ export class RunDetail extends LitElement {
       </div>`;
     }
 
-    const run = this.run;
+    const run = this.run.toNullable()!;
     const prev = this.previous;
     const zoomDomain = (key: PanelKey): [number, number] | null => {
       const z = this.zoomByPanel.get(key) ?? null;
@@ -414,6 +591,8 @@ export class RunDetail extends LitElement {
     };
     const started = new Date(run.started_at);
     const startedHint = `${started.getFullYear()}-${String(started.getMonth() + 1).padStart(2, "0")}-${String(started.getDate()).padStart(2, "0")}\n${started.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })}`;
+
+    const showCharts = !this.live || this.liveBootstrapping || this.livePoints.length > 0;
 
     return html`
       <div class="page">
@@ -425,15 +604,11 @@ export class RunDetail extends LitElement {
             <h3 class="mono">${run.id.slice(0, 8)}</h3>
           </div>
           <div class="header-actions">
-            ${run.status === "running"
-              ? html`<button
-                  class="btn status-btn"
-                  @click=${() => navigate(`/runs/${run.id}/live`)}
-                  title="watch this run live"
-                >
+            ${this.live
+              ? html`<span class="run-status warn" title="Streaming live metrics">
                   <broadside-status-dot tone="warn" pulse></broadside-status-dot>
                   live
-                </button>`
+                </span>`
               : html`<span class="run-status ${run.status === "failed" ? "bad" : "ok"}">
                   <broadside-status-dot
                     tone=${run.status === "failed" ? "bad" : "ok"}
@@ -460,6 +635,13 @@ export class RunDetail extends LitElement {
             </button>
           </div>
         </div>
+
+        ${this.liveReconnecting
+          ? html`<p class="notice">⚠ stream disconnected — reconnecting…</p>`
+          : ""}
+        ${this.live && !this.liveBootstrapping && this.livePoints.length === 0
+          ? html`<p class="notice">waiting for metrics… (first points appear after ingest/flush)</p>`
+          : ""}
 
         <div class="kpis">
           <broadside-kpi-card
@@ -516,131 +698,144 @@ export class RunDetail extends LitElement {
             .value=${this.endpoint}
             @endpoint-change=${this.onEndpointChange}
           ></broadside-endpoint-select>
-          <broadside-select
-            label="Granularity"
-            .options=${[
-              { value: "10s", label: "10 seconds" },
-              { value: "1m", label: "1 minute" },
-              { value: "1h", label: "1 hour" },
-              { value: "1d", label: "1 day" },
-            ]}
-            .value=${this.granularity}
-            @change=${this.onGranularityChange}
-          ></broadside-select>
+          ${this.live
+            ? html`<span class="live-hint">live stream (1s raw)</span>`
+            : html`<broadside-select
+                label="Granularity"
+                .options=${[
+                  { value: "10s", label: "10 seconds" },
+                  { value: "1m", label: "1 minute" },
+                  { value: "1h", label: "1 hour" },
+                  { value: "1d", label: "1 day" },
+                ]}
+                .value=${this.granularity}
+                @change=${this.onGranularityChange}
+              ></broadside-select>`}
         </div>
 
-        <div class="grid">
-          <broadside-chart-panel
-            title="throughput"
-            .info=${INFO.throughput}
-            .series=${this.seriesFor("rps")}
-            yFormat="req/s"
-            yLabel="req/s"
-            .fill=${true}
-            .zoomed=${zoomDomain("rps") !== null}
-            .domain=${zoomDomain("rps")}
-            .annotations=${this.annotations}
-            @zoom=${(e: CustomEvent) => void this.onZoom(e, "rps")}
-            @reset-zoom=${() => this.resetZoom("rps")}
-          ></broadside-chart-panel>
-          <broadside-chart-panel
-            title="latency percentiles"
-            .info=${INFO.latency}
-            .series=${this.seriesFor("latency")}
-            yFormat="ms"
-            yLabel="ms"
-            .zoomed=${zoomDomain("latency") !== null}
-            .domain=${zoomDomain("latency")}
-            .annotations=${this.annotations}
-            @zoom=${(e: CustomEvent) => void this.onZoom(e, "latency")}
-            @reset-zoom=${() => this.resetZoom("latency")}
-          ></broadside-chart-panel>
-          <broadside-chart-panel
-            title="error rate"
-            .info=${INFO.errorRate}
-            .series=${this.seriesFor("errors")}
-            yFormat="%"
-            yLabel="%"
-            .fill=${true}
-            .zoomed=${zoomDomain("errors") !== null}
-            .domain=${zoomDomain("errors")}
-            .annotations=${this.annotations}
-            @zoom=${(e: CustomEvent) => void this.onZoom(e, "errors")}
-            @reset-zoom=${() => this.resetZoom("errors")}
-          ></broadside-chart-panel>
-          <broadside-chart-panel
-            title="active virtual users"
-            .info=${INFO.activeVusers}
-            .series=${[{ name: "active vusers", colorIndex: 4, points: this.activeVusers() }]}
-            yFormat="count"
-            yLabel="vusers"
-            .fill=${true}
-            .annotations=${this.annotations}
-          ></broadside-chart-panel>
-          <broadside-chart-panel
-            title="tail latency spread"
-            .info=${INFO.tailSpread}
-            .series=${[{ name: "p99 / p50", colorIndex: 2, points: this.tailSpread() }]}
-            yFormat="count"
-            yLabel="×"
-            .fill=${true}
-            .annotations=${this.annotations}
-          ></broadside-chart-panel>
-          <broadside-chart-panel
-            title="latency CDF"
-            .info=${INFO.cdf}
-            .series=${this.cdfSeries()}
-            yFormat="%"
-            yLabel="share"
-            kind="step"
-            xFormat="number"
-            .fill=${true}
-          ></broadside-chart-panel>
-          <div class="sentinel" ${ref(this.bindEndpointSentinel)}>
-            ${this.endpointsLoaded
-              ? this.endpointSeries.length > 0
-                ? html`<broadside-chart-panel
-                    title="per-endpoint p95"
-                    .info=${INFO.perEndpoint}
-                    .series=${this.endpointSeries}
-                    yFormat="ms"
-                    yLabel="ms"
-                    kind="line"
-                    .annotations=${this.annotations}
-                  ></broadside-chart-panel>`
-                : html`<div class="card hint-card">
-                    <span class="hint-title">per-endpoint p95</span>
-                    <p class="hint">enable the metrics-by-endpoint plugin in your Artillery YAML for per-endpoint charts</p>
-                  </div>`
-              : html`<broadside-skeleton variant="chart"></broadside-skeleton>`}
-          </div>
-          <broadside-chart-panel
-            title="error count"
-            .info=${INFO.errorCount}
-            .series=${[{ name: "errors", colorIndex: 3, points: this.errorCount() }]}
-            yFormat="count"
-            yLabel="errors"
-            .fill=${true}
-            .annotations=${this.annotations}
-          ></broadside-chart-panel>
-          <broadside-chart-panel
-            title="vusers created vs completed"
-            .info=${INFO.vusersIo}
-            .series=${this.vusersIo()}
-            yFormat="count"
-            yLabel="vusers"
-            .annotations=${this.annotations}
-          ></broadside-chart-panel>
-          <broadside-chart-panel
-            title="latency histogram"
-            .info=${INFO.histogram}
-            .series=${this.histogramSeries()}
-            yFormat="%"
-            yLabel="share"
-            kind="bars"
-            xFormat="number"
-          ></broadside-chart-panel>
-        </div>
+        ${run.failure_reason || run.partial_data
+          ? html`<div class="run-note ${run.status === "failed" || run.partial_data ? "warn" : ""}">
+              ${run.failure_reason ? html`<span><strong>failure_reason:</strong> ${run.failure_reason}</span>` : ""}
+              ${run.partial_data
+                ? html`<span><strong>partial_data:</strong> yes${run.dropped_points ? ` (dropped ${run.dropped_points})` : ""}</span>`
+                : ""}
+            </div>`
+          : ""}
+
+        ${!showCharts
+          ? html`<broadside-skeleton variant="chart"></broadside-skeleton>`
+          : html`<div class="grid">
+              <broadside-chart-panel
+                title="throughput"
+                .info=${INFO.throughput}
+                .series=${this.seriesFor("rps")}
+                yFormat="req/s"
+                yLabel="req/s"
+                .fill=${true}
+                .zoomed=${!this.live && zoomDomain("rps") !== null}
+                .domain=${this.live ? null : zoomDomain("rps")}
+                .annotations=${this.annotations}
+                @zoom=${(e: CustomEvent) => void this.onZoom(e, "rps")}
+                @reset-zoom=${() => this.resetZoom("rps")}
+              ></broadside-chart-panel>
+              <broadside-chart-panel
+                title="latency percentiles"
+                .info=${INFO.latency}
+                .series=${this.seriesFor("latency")}
+                yFormat="ms"
+                yLabel="ms"
+                .zoomed=${!this.live && zoomDomain("latency") !== null}
+                .domain=${this.live ? null : zoomDomain("latency")}
+                .annotations=${this.annotations}
+                @zoom=${(e: CustomEvent) => void this.onZoom(e, "latency")}
+                @reset-zoom=${() => this.resetZoom("latency")}
+              ></broadside-chart-panel>
+              <broadside-chart-panel
+                title="error rate"
+                .info=${INFO.errorRate}
+                .series=${this.seriesFor("errors")}
+                yFormat="%"
+                yLabel="%"
+                .fill=${true}
+                .zoomed=${!this.live && zoomDomain("errors") !== null}
+                .domain=${this.live ? null : zoomDomain("errors")}
+                .annotations=${this.annotations}
+                @zoom=${(e: CustomEvent) => void this.onZoom(e, "errors")}
+                @reset-zoom=${() => this.resetZoom("errors")}
+              ></broadside-chart-panel>
+              <broadside-chart-panel
+                title="active virtual users"
+                .info=${INFO.activeVusers}
+                .series=${[{ name: "active vusers", colorIndex: 4, points: this.activeVusers() }]}
+                yFormat="count"
+                yLabel="vusers"
+                .fill=${true}
+                .annotations=${this.annotations}
+              ></broadside-chart-panel>
+              <broadside-chart-panel
+                title="tail latency spread"
+                .info=${INFO.tailSpread}
+                .series=${[{ name: "p99 / p50", colorIndex: 2, points: this.tailSpread() }]}
+                yFormat="count"
+                yLabel="×"
+                .fill=${true}
+                .annotations=${this.annotations}
+              ></broadside-chart-panel>
+              <broadside-chart-panel
+                title="latency CDF"
+                .info=${INFO.cdf}
+                .series=${this.cdfSeries()}
+                yFormat="%"
+                yLabel="share"
+                kind="step"
+                xFormat="number"
+                .fill=${true}
+              ></broadside-chart-panel>
+              <div class="sentinel" ${ref(this.bindEndpointSentinel)}>
+                ${this.endpointsLoaded
+                  ? this.endpointSeries.length > 0
+                    ? html`<broadside-chart-panel
+                        title="per-endpoint p95"
+                        .info=${INFO.perEndpoint}
+                        .series=${this.endpointSeries}
+                        yFormat="ms"
+                        yLabel="ms"
+                        kind="line"
+                        .annotations=${this.annotations}
+                      ></broadside-chart-panel>`
+                    : html`<div class="card hint-card">
+                        <span class="hint-title">per-endpoint p95</span>
+                        <p class="hint">enable the metrics-by-endpoint plugin in your Artillery YAML for per-endpoint charts</p>
+                      </div>`
+                  : html`<broadside-skeleton variant="chart"></broadside-skeleton>`}
+              </div>
+              <broadside-chart-panel
+                title="error count"
+                .info=${INFO.errorCount}
+                .series=${[{ name: "errors", colorIndex: 3, points: this.errorCount() }]}
+                yFormat="count"
+                yLabel="errors"
+                .fill=${true}
+                .annotations=${this.annotations}
+              ></broadside-chart-panel>
+              <broadside-chart-panel
+                title="vusers created vs completed"
+                .info=${INFO.vusersIo}
+                .series=${this.vusersIo()}
+                yFormat="count"
+                yLabel="vusers"
+                .annotations=${this.annotations}
+              ></broadside-chart-panel>
+              <broadside-chart-panel
+                title="latency histogram"
+                .info=${INFO.histogram}
+                .series=${this.histogramSeries()}
+                yFormat="%"
+                yLabel="share"
+                kind="bars"
+                xFormat="number"
+              ></broadside-chart-panel>
+            </div>`}
       </div>
 
       <broadside-confirm-dialog
@@ -727,6 +922,9 @@ export class RunDetail extends LitElement {
     .run-status.bad {
       color: var(--bad);
     }
+    .run-status.warn {
+      color: var(--warn);
+    }
     .btn {
       font-family: var(--font-mono);
       font-size: var(--step-0);
@@ -745,6 +943,17 @@ export class RunDetail extends LitElement {
     .btn.danger:hover:not(:disabled) {
       border-color: var(--bad);
       color: var(--bad);
+    }
+    .notice {
+      margin: 0;
+      font-family: var(--font-mono);
+      font-size: var(--step--1);
+      color: var(--warn);
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-left: 4px solid var(--warn);
+      border-radius: var(--radius);
+      padding: var(--s-3);
     }
     .kpis {
       display: grid;
@@ -765,6 +974,12 @@ export class RunDetail extends LitElement {
       align-items: flex-end;
       gap: var(--s-4);
       flex-wrap: wrap;
+    }
+    .live-hint {
+      font-family: var(--font-mono);
+      font-size: var(--step--1);
+      color: var(--mute);
+      padding-bottom: var(--s-2);
     }
     .field {
       display: inline-flex;
@@ -801,6 +1016,20 @@ export class RunDetail extends LitElement {
     .select:focus {
       border-color: var(--amber-dim);
     }
+    .run-note {
+      display: flex;
+      gap: var(--s-4);
+      flex-wrap: wrap;
+      font-family: var(--font-mono);
+      font-size: var(--step--1);
+      color: var(--text-dim);
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-left: 4px solid var(--warn);
+      border-radius: var(--radius);
+      padding: var(--s-3);
+    }
+    .run-note.warn { color: var(--warn); }
     .grid {
       display: grid;
       grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);

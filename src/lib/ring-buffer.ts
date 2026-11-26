@@ -7,9 +7,13 @@ export class RingBuffer<T> {
   private _dropped = 0;
 
   constructor(capacity: number) {
-    this.cap = 1 << Math.ceil(Math.log2(capacity));
+    this.cap = 1 << Math.ceil(Math.log2(Math.max(2, capacity)));
     this.mask = this.cap - 1;
     this.buf = new Array(this.cap);
+  }
+
+  get capacity(): number {
+    return this.cap;
   }
 
   get size(): number {

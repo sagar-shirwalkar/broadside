@@ -1,6 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
 import type { MiddlewareHandler } from "hono";
-import type { AppEnv } from "../../logger.js";
+import type { AppEnv } from "../../logger.ts";
 
 /** Failed-attempt budget per client: after this many bad tokens inside one
  *  window, further attempts get a 429 until the window rolls over. */

@@ -1,4 +1,4 @@
-import type { Action, State } from "./types.js";
+import type { Action, State } from "./types.ts";
 
 const MAX_COMPARE = 5;
 

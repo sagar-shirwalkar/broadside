@@ -1,6 +1,6 @@
 import type { Env } from "hono";
 import pino, { type Logger, type LoggerOptions } from "pino";
-import { config } from "./config.js";
+import { config } from "./config.ts";
 
 export type AppEnv = Env & {
   Variables: {

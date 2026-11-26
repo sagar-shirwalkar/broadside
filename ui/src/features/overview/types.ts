@@ -1,4 +1,4 @@
-import type { ChartPoint } from "../../types.js";
+import type { ChartPoint } from "../../types.ts";
 
 export interface SloEntry {
   key: string;

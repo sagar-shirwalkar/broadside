@@ -1,0 +1,52 @@
+{
+  "name": "@broadside/fp",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "source": "./index.ts",
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./either": {
+      "source": "./monads/either.ts",
+      "types": "./dist/monads/either.d.ts",
+      "import": "./dist/monads/either.js"
+    },
+    "./maybe": {
+      "source": "./monads/maybe.ts",
+      "types": "./dist/monads/maybe.d.ts",
+      "import": "./dist/monads/maybe.js"
+    },
+    "./validation": {
+      "source": "./applicatives/validation.ts",
+      "types": "./dist/applicatives/validation.d.ts",
+      "import": "./dist/applicatives/validation.js"
+    },
+    "./pipe": {
+      "source": "./combinators/pipe.ts",
+      "types": "./dist/combinators/pipe.d.ts",
+      "import": "./dist/combinators/pipe.js"
+    },
+    "./predicate": {
+      "source": "./combinators/predicate.ts",
+      "types": "./dist/combinators/predicate.d.ts",
+      "import": "./dist/combinators/predicate.js"
+    },
+    "./match": {
+      "source": "./combinators/match.ts",
+      "types": "./dist/combinators/match.d.ts",
+      "import": "./dist/combinators/match.js"
+    },
+    "./record": {
+      "source": "./combinators/record.ts",
+      "types": "./dist/combinators/record.d.ts",
+      "import": "./dist/combinators/record.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  }
+}

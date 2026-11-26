@@ -1,0 +1,70 @@
+# Example Docker Compose overrides for custom resource pinning.
+#
+# Usage:
+#   cp docker-compose.override.example.yml docker-compose.override.yml
+#   # edit as needed, then run compose commands normally
+#
+# docker-compose.override.yml is gitignored for local machine-specific tuning.
+# Compose automatically merges docker-compose.override.yml when present.
+#
+# Platform notes (cpuset):
+# - Linux: cpuset/cpus/memory limits are generally honored by the host kernel/cgroups
+#   when supported. Use cpuset to pin containers to specific logical CPUs
+#   (examples: "0", "0-1", "2,3").
+# - macOS (Docker Desktop, including Apple Silicon): containers run inside Docker
+#   Desktop's Linux VM. `cpuset` maps to that VM's vCPUs (not physical host cores)
+#   and may be ignored, partially honored, or constrained by Docker Desktop/engine
+#   behavior and the VM's allocated CPU count. For predictable results on macOS,
+#   prefer `cpus`/`mem_limit` (and tune Docker Desktop VM CPU/memory settings),
+#   then verify cpuset effects on your specific setup before relying on them.
+#
+# Tip: keep base docker-compose.yml portable/valid; use this override for host-
+# specific pinning. If you reference env vars (e.g. ${DASHBOARD_CPUSET}), ensure
+# they are set in your shell/.env when the override is active, because an empty
+# cpuset value can make Compose config invalid.
+
+services:
+  dashboard:
+    # Example fixed pinning (Linux-oriented). Adjust for your CPU topology.
+    # cpuset: "0"
+    cpus: ${DASHBOARD_CPUS:-1.0}
+    mem_limit: ${DASHBOARD_MEM_LIMIT:-1g}
+    # Optional: add/override deploy resources (useful in swarm/compatible modes)
+    deploy:
+      resources:
+        limits:
+          cpus: "${DASHBOARD_CPUS:-1.0}"
+          memory: ${DASHBOARD_MEM_LIMIT:-1g}
+        reservations:
+          cpus: "${DASHBOARD_CPU_RESERVATION:-0.25}"
+          memory: ${DASHBOARD_MEM_RESERVATION:-256m}
+
+  ingest:
+    # Example fixed pinning (Linux-oriented). Place ingest on a different core.
+    # cpuset: "1"
+    cpus: ${INGEST_CPUS:-1.0}
+    mem_limit: ${INGEST_MEM_LIMIT:-1g}
+    deploy:
+      resources:
+        limits:
+          cpus: "${INGEST_CPUS:-1.0}"
+          memory: ${INGEST_MEM_LIMIT:-1g}
+        reservations:
+          cpus: "${INGEST_CPU_RESERVATION:-0.25}"
+          memory: ${INGEST_MEM_RESERVATION:-256m}
+
+  # Optional: pin TimescaleDB as well (can improve repeatability on dedicated hosts)
+  # db:
+  #   cpuset: "2-3"
+  #   cpus: ${DB_CPUS:-2.0}
+  #   mem_limit: ${DB_MEM_LIMIT:-2g}
+
+# --- Env-driven cpuset example (enable only when vars are set/uncommented) ---
+# Uncomment the blocks below AFTER setting DASHBOARD_CPUSET/INGEST_CPUSET in .env,
+# otherwise Compose may fail due to empty cpuset values.
+#
+# services:
+#   dashboard:
+#     cpuset: ${DASHBOARD_CPUSET}
+#   ingest:
+#     cpuset: ${INGEST_CPUSET}

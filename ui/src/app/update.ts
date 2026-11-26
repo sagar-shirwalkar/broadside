@@ -1,4 +1,4 @@
-import type { AppAction, AppState } from "./types.js";
+import type { AppAction, AppState } from "./types.ts";
 
 export function update(state: AppState, action: AppAction): AppState {
   switch (action.type) {

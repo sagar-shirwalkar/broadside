@@ -1,6 +1,6 @@
 import { LitElement } from "lit";
-import type { Cmd, Init, View } from "./types.js";
-import { runCmd } from "./cmd.js";
+import type { Cmd, Init, View } from "./types.ts";
+import { runCmd } from "./cmd.ts";
 
 /**
  * TEA/MVU runtime: binds a pure (init/update/view) triple to a Lit custom element.

@@ -1,2 +1,2 @@
-export * from "./app/index.js";
+export * from "./app/index.ts";
 import "./app/index.js";

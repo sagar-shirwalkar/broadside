@@ -1,4 +1,4 @@
-import type { Action, State } from "./types.js";
+import type { Action, State } from "./types.ts";
 
 export function update(state: State, action: Action): State {
   switch (action.type) {

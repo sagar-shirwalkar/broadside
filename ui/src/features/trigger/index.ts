@@ -1,9 +1,28 @@
 import { LitElement, css, html } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
-import { api, ApiError } from "../../services/api.js";
+import { Validation } from "@broadside/fp/validation";
+import { api, ApiError } from "../../services/api.ts";
 
 export interface RunStarted {
   id: string;
+}
+
+interface TriggerForm {
+  scriptPath: string;
+  config: string;
+  extraArgs: string;
+}
+
+function validateTriggerForm(input: TriggerForm): Validation<string, TriggerForm> {
+  const scriptPath = input.scriptPath.trim();
+  const errors: string[] = [];
+  if (!scriptPath) errors.push("script_path is required");
+  if (scriptPath.includes("..")) errors.push("script_path must not contain '..'");
+  if (errors.length > 0) {
+    const [first, ...rest] = errors;
+    return Validation.fail(first, ...rest);
+  }
+  return Validation.ok({ ...input, scriptPath });
 }
 
 /**
@@ -32,42 +51,46 @@ export class TriggerDialog extends LitElement {
   }
 
   private async submit() {
-    const scriptPath = this.scriptPath.trim();
-    if (!scriptPath) {
-      this.error = "script_path is required";
-      return;
-    }
-    if (scriptPath.includes("..")) {
-      this.error = "script_path must not contain '..'";
-      return;
-    }
-    this.error = null;
-    this.submitting = true;
-    try {
-      const args = this.extraArgs
-        .split(",")
-        .map((a) => a.trim())
-        .filter(Boolean);
-      const body: Record<string, unknown> = { script_path: scriptPath };
-      if (this.config.trim()) body.config = this.config;
-      if (args.length) body.extra_args = args;
-      const { id } = await api<{ id: string }>("/api/runs", {
-        method: "POST",
-        body: JSON.stringify(body),
-      });
-      this.dispatchEvent(
-        new CustomEvent<RunStarted>("run-started", {
-          detail: { id },
-          bubbles: true,
-          composed: true,
-        }),
-      );
-    } catch (err) {
-      this.error =
-        err instanceof ApiError ? err.message : "failed to start run";
-    } finally {
-      this.submitting = false;
-    }
+    const result = validateTriggerForm({
+      scriptPath: this.scriptPath,
+      config: this.config,
+      extraArgs: this.extraArgs,
+    });
+
+    await result.match({
+      fail: async (violations) => {
+        this.error = violations.join("; ");
+      },
+      ok: async ({ scriptPath, config, extraArgs }) => {
+        this.error = null;
+        this.submitting = true;
+        try {
+          const args = extraArgs
+            .split(",")
+            .map((a) => a.trim())
+            .filter(Boolean);
+          const body: Record<string, unknown> = { script_path: scriptPath };
+          if (config.trim()) body.config = config;
+          if (args.length) body.extra_args = args;
+          const { id } = await api<{ id: string }>("/api/runs", {
+            method: "POST",
+            body: JSON.stringify(body),
+          });
+          this.dispatchEvent(
+            new CustomEvent<RunStarted>("run-started", {
+              detail: { id },
+              bubbles: true,
+              composed: true,
+            }),
+          );
+        } catch (err) {
+          this.error =
+            err instanceof ApiError ? err.message : "failed to start run";
+        } finally {
+          this.submitting = false;
+        }
+      },
+    });
   }
 
   override render() {

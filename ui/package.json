@@ -12,6 +12,7 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
+    "@broadside/fp": "workspace:*",
     "lit": "3.3.3"
   },
   "devDependencies": {

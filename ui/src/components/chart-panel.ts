@@ -2,8 +2,8 @@ import { LitElement, css, html } from "lit";
 import { customElement, property } from "lit/decorators.js";
 import "./line-chart.js";
 import "./info-tip.js";
-import type { ChartKind, XFormat, YFormat } from "./line-chart.js";
-import type { ChartSeries, PhaseAnnotation } from "../types.js";
+import type { ChartKind, XFormat, YFormat } from "./line-chart.ts";
+import type { ChartSeries, PhaseAnnotation } from "../types.ts";
 
 /**
  * A titled chart card with an optional hover info card (why this metric

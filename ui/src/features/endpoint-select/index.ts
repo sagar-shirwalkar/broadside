@@ -1,7 +1,7 @@
 import { LitElement, css, html } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
-import { apiGet } from "../../services/api.js";
-import type { EndpointRow } from "../../types.js";
+import { apiGet } from "../../services/api.ts";
+import type { EndpointRow } from "../../types.ts";
 import "../../components/select.js";
 
 export const ALL_ENDPOINTS = "";

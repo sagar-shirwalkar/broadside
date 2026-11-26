@@ -1,7 +1,7 @@
-import type { Cmd } from "../../core/types.js";
-import { apiGet } from "../../services/api.js";
-import type { CompareResponse, EndpointRow, Granularity, RunRow } from "../../types.js";
-import type { Action } from "./types.js";
+import type { Cmd } from "../../core/types.ts";
+import { apiGet } from "../../services/api.ts";
+import type { CompareResponse, EndpointRow, Granularity, RunRow } from "../../types.ts";
+import type { Action } from "./types.ts";
 
 export function loadRuns(): Cmd<Action> {
   return async () => {

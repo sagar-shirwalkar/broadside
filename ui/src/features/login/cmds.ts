@@ -1,6 +1,6 @@
-import type { Cmd } from "../../core/types.js";
-import { api, ApiError, setToken } from "../../services/api.js";
-import type { Action } from "./types.js";
+import type { Cmd } from "../../core/types.ts";
+import { api, ApiError, setToken } from "../../services/api.ts";
+import type { Action } from "./types.ts";
 
 export function submitLogin(token: string): Cmd<Action> {
   return async () => {

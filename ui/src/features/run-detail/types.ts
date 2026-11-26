@@ -1,3 +1,4 @@
+import { Maybe } from "@broadside/fp/maybe";
 import type {
   ChartSeries,
   EndpointRow,
@@ -6,15 +7,14 @@ import type {
   PhaseAnnotation,
   RawRow,
   RunRow,
-} from "../../types.js";
+} from "../../types.ts";
 
 export type PanelKey = "rps" | "latency" | "errors" | "volume";
 export type ZoomRange = { from: number; to: number } | null;
 
 export interface State {
   readonly runId: string;
-  readonly run: RunRow | null;
-  readonly missing: boolean;
+  readonly run: Maybe<RunRow>;
   readonly rows: MetricRow[];
   readonly rawByPanel: ReadonlyMap<PanelKey, RawRow[]>;
   readonly endpoint: string;
@@ -31,8 +31,7 @@ export interface State {
 
 export const initialState = (runId = ""): State => ({
   runId,
-  run: null,
-  missing: false,
+  run: Maybe.nothing(),
   rows: [],
   rawByPanel: new Map(),
   endpoint: "",
@@ -50,8 +49,7 @@ export const initialState = (runId = ""): State => ({
 export type Action =
   | { type: "set_run_id"; runId: string }
   | { type: "load_started" }
-  | { type: "run_loaded"; run: RunRow }
-  | { type: "missing" }
+  | { type: "run_resolved"; run: Maybe<RunRow> }
   | { type: "metrics_loaded"; rows: MetricRow[] }
   | { type: "previous_loaded"; previous: RunRow | null }
   | { type: "annotations_loaded"; annotations: PhaseAnnotation[] }

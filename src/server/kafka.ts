@@ -1,8 +1,8 @@
 import { Consumer, stringDeserializer, jsonDeserializer } from "@platformatic/kafka";
-import { config } from "../config.js";
-import { logger } from "../logger.js";
-import { metricsFlusher } from "../lib/flusher.js";
-import type { MetricBatch, MetricPoint } from "../types.js";
+import { config } from "../config.ts";
+import { logger } from "../logger.ts";
+import { metricsFlusher } from "../lib/flusher.ts";
+import type { MetricBatch, MetricPoint } from "../types.ts";
 
 function createConsumer(): Consumer<string, MetricBatch> {
   return new Consumer({

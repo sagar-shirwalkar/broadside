@@ -1,2 +1,2 @@
-export * from "../features/health/index.js";
+export * from "../features/health/index.ts";
 import "../features/health/index.js";

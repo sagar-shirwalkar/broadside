@@ -1,4 +1,4 @@
-import { notifyToast } from "../components/toast.js";
+import { notifyToast } from "../components/toast.ts";
 
 const TOKEN_KEY = "broadside.token";
 

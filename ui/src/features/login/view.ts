@@ -1,7 +1,7 @@
 import { html, type TemplateResult } from "lit";
-import type { Cmd } from "../../core/types.js";
-import { submitLogin } from "./cmds.js";
-import type { Action, State } from "./types.js";
+import type { Cmd } from "../../core/types.ts";
+import { submitLogin } from "./cmds.ts";
+import type { Action, State } from "./types.ts";
 
 export function view(
   state: State,
