@@ -206,6 +206,7 @@ describe("config", () => {
     process.env.PORT = "not-a-port";
     process.env.SERVICE_ROLE = "bogus";
     process.env.RING_CAPACITY = "nope";
+    process.env.SLO_P95_MS = "Infinity";
 
     await expect(import(".././config.ts")).rejects.toThrowError(
       expect.objectContaining({
@@ -223,6 +224,9 @@ describe("config", () => {
         'SERVICE_ROLE must be one of "all" | "api" | "ingest" (got "bogus")',
       );
       expect(message).toContain('RING_CAPACITY must be an integer (got "nope")');
+      expect(message).toContain(
+        'SLO_P95_MS must be a finite number (got "Infinity")',
+      );
     }
   });
 });

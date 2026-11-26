@@ -1,10 +1,18 @@
 import { describe, expect, it, vi } from "vitest";
 
-const h = vi.hoisted(() => ({ ingest: vi.fn() }));
+const h = vi.hoisted(() => ({
+  ingest: vi.fn(),
+  warn: vi.fn(),
+  maxBatchPoints: 2,
+}));
 
 vi.mock("../../lib/flusher.ts", () => ({
   metricsFlusher: { ingest: h.ingest },
 }));
+vi.mock("../../config.ts", () => ({
+  config: { ingest: { maxBatchPoints: h.maxBatchPoints } },
+}));
+vi.mock("../../logger.ts", () => ({ logger: { warn: h.warn } }));
 
 import { Ingest } from "../../gen/metrics/v1/ingest_pb.ts";
 import { routes } from ".././grpc.ts";
@@ -120,5 +128,24 @@ describe("gRPC routes", () => {
 
     expect(ack).toEqual({ accepted: 0, dropped: 0 });
     expect(h.ingest).toHaveBeenCalledWith([]);
+  });
+
+  it("caps oversized batches and reports dropped points", async () => {
+    const { impl } = setup();
+
+    const ack = await impl.pushMetrics(
+      { runId: "run-1", points: [protoPoint(), protoPoint(), protoPoint()] },
+      {},
+    );
+
+    expect(ack).toEqual({ accepted: 2, dropped: 1 });
+    expect(h.ingest).toHaveBeenCalledWith([
+      expect.objectContaining({ runId: "run-1" }),
+      expect.objectContaining({ runId: "run-1" }),
+    ]);
+    expect(h.warn).toHaveBeenCalledWith(
+      { runId: "run-1", dropped: 1, cap: 2 },
+      "[grpc] batch exceeds cap, dropping excess points",
+    );
   });
 });

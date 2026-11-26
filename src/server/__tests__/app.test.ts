@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const h = vi.hoisted(() => ({
-  state: { factory: null as null | (() => any) },
+  state: { factory: null as null | (() => any), uiIndexExists: true },
   ingest: vi.fn(),
   shouldSlowDown: vi.fn(() => false),
   noteSlowDownSent: vi.fn(),
@@ -18,7 +18,7 @@ vi.mock("@hono/node-server/serve-static", () => ({
   serveStatic: () => (_c: unknown, next: () => Promise<void>) => next(),
 }));
 vi.mock("node:fs", () => ({
-  existsSync: () => true,
+  existsSync: () => h.state.uiIndexExists,
   readFileSync: () => "<html>broadside-test-index</html>",
 }));
 vi.mock("../../lib/flusher.ts", () => ({
@@ -46,6 +46,19 @@ function websocketHandlers() {
 describe("createApp", () => {
   beforeEach(() => {
     h.state.factory = null;
+    h.state.uiIndexExists = true;
+  });
+
+  it("adds HSTS only for https requests", async () => {
+    const app = createApp();
+
+    const secure = await app.request("https://example.com/");
+    expect(secure.headers.get("Strict-Transport-Security")).toContain(
+      "max-age=31536000",
+    );
+
+    const plain = await app.request("http://example.com/");
+    expect(plain.headers.get("Strict-Transport-Security")).toBeNull();
   });
 
   it("ingests a metric batch from a WebSocket message", () => {
@@ -220,6 +233,16 @@ describe("createApp", () => {
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toContain("text/html");
     expect(await res.text()).toContain("broadside-test-index");
+  });
+
+  it("returns JSON 404 for SPA paths when the UI bundle is absent", async () => {
+    h.state.uiIndexExists = false;
+    const app = createApp();
+
+    const res = await app.request("/runs/123");
+
+    expect(res.status).toBe(404);
+    expect(await res.json()).toEqual({ error: "not found" });
   });
 
   it("returns JSON 404 for unknown API paths", async () => {
