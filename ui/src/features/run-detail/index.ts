@@ -1,7 +1,6 @@
 import { LitElement, css, html } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import { ref } from "lit/directives/ref.js";
-import { Either } from "@broadside/fp/either";
 import { Maybe } from "@broadside/fp/maybe";
 import {
   api,
@@ -175,33 +174,29 @@ export class RunDetail extends LitElement {
     this.endpointObserver.observe(el);
   };
 
-  private async loadRunResult(): Promise<Either<"missing" | "error", RunRow>> {
+  private async loadRun(): Promise<Maybe<RunRow>> {
     try {
       const run = await apiGet<RunRow>(
         `/api/runs/${encodeURIComponent(this.runId)}`,
       );
-      return Maybe.fromNullable(run).toEither(() => "error" as const);
+      return Maybe.fromNullable(run);
     } catch (err) {
+      // 404 and other load errors collapse to absence so the UI shows not-found
+      // instead of spinning; missing is represented as Maybe.nothing().
       if (err instanceof ApiError && err.status === 404) {
-        return Either.left("missing");
+        return Maybe.nothing();
       }
-      return Either.left("error");
+      return Maybe.nothing();
     }
   }
 
   private async loadAll() {
     this.loading = true;
-    const result = await this.loadRunResult();
+    const result = await this.loadRun();
+    this.run = result;
     await result.match({
-      left: async (reason) => {
-        // 404 => missing (Nothing). Other errors also leave run absent so UI doesn't spin forever.
-        this.run = Maybe.nothing();
-        if (reason === "missing") {
-          // explicit not-found state represented by Nothing after load completes
-        }
-      },
-      right: async (run) => {
-        this.run = Maybe.just(run);
+      nothing: async () => {},
+      just: async (run) => {
         // A 1-minute rollup collapses sub-2-minute runs into a single
         // bucket — offer the 10s CAGG instead so charts have shape.
         this.granularity =

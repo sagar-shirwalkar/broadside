@@ -89,6 +89,11 @@ tasks:
     cmds:
       - pnpm test:coverage
 
+  fp:test:
+    desc: "Run @broadside/fp package tests"
+    cmds:
+      - pnpm exec vitest run packages/fp
+
   # ─── Proto ───
   proto:
     desc: "Generate TypeScript from .proto files"

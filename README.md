@@ -58,7 +58,7 @@ docker compose up --build -d   # dashboard + ingest + db
 
 ## Contributing
 
-See [docs/contributing.md](docs/contributing.md). Before opening a PR, run `pnpm task proto:check`, `pnpm task lint`, `pnpm test:coverage`, and `pnpm build`.
+See [docs/contributing.md](docs/contributing.md). Before opening a PR, run `pnpm task proto:check`, `pnpm task lint`, `pnpm test:coverage`, and `pnpm task build` (builds `@broadside/fp`, server, and UI). For UI changes, also run `cd ui && pnpm typecheck`, `pnpm task ui:test`, and `pnpm task ui:test:e2e` as applicable.
 
 ## License
 

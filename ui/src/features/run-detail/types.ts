@@ -49,8 +49,7 @@ export const initialState = (runId = ""): State => ({
 export type Action =
   | { type: "set_run_id"; runId: string }
   | { type: "load_started" }
-  | { type: "run_loaded"; run: RunRow }
-  | { type: "missing" }
+  | { type: "run_resolved"; run: Maybe<RunRow> }
   | { type: "metrics_loaded"; rows: MetricRow[] }
   | { type: "previous_loaded"; previous: RunRow | null }
   | { type: "annotations_loaded"; annotations: PhaseAnnotation[] }

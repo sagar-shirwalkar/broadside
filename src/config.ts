@@ -80,45 +80,12 @@ function parseServiceRole(): Validation<ConfigError, "all" | "api" | "ingest"> {
 }
 
 function parseConfig(): Validation<ConfigError, AppConfig> {
-  // Collect all independent validation errors instead of failing on the first.
-  const errors: ConfigError[] = [];
-  const take = <T>(v: Validation<ConfigError, T>, fallback: T): T => {
-    if (v.isFail()) {
-      errors.push(...v.violationArray);
-      return fallback;
-    }
-    return v.valueOrUndefined as T;
-  };
-
-  const port = take(parseIntEnv("PORT", "3000"), 3000);
-  const ingestPort = take(parseIntEnv("INGEST_PORT", "0"), 0);
-  const serviceRole = take(parseServiceRole(), "all");
   const ingestUrl = process.env.INGEST_URL ?? "";
   const databaseUrl = process.env.DATABASE_URL!;
 
   const log = {
     level: process.env.LOG_LEVEL ?? "info",
     pretty: process.env.LOG_PRETTY === "true",
-  };
-
-  const server = {
-    keepAliveTimeoutMs: take(parseIntEnv("SERVER_KEEP_ALIVE_TIMEOUT_MS", "65000"), 65000),
-    headersTimeoutMs: take(parseIntEnv("SERVER_HEADERS_TIMEOUT_MS", "66000"), 66000),
-    requestTimeoutMs: take(parseIntEnv("SERVER_REQUEST_TIMEOUT_MS", "120000"), 120000),
-    maxRequestsPerSocket: take(parseIntEnv("SERVER_MAX_REQUESTS_PER_SOCKET", "1000"), 1000),
-    maxConnections: take(parseIntEnv("SERVER_MAX_CONNECTIONS", "0"), 0),
-  };
-
-  const artillery = {
-    reportDir: process.env.ARTILLERY_REPORT_DIR ?? "data/reports",
-    maxConcurrentRuns: take(parseIntEnv("ARTILLERY_MAX_CONCURRENT", "4"), 4),
-    childMaxOldGenerationMb: take(parseIntEnv("ARTILLERY_CHILD_MAX_OLD_MB", "0"), 0),
-    childMaxYoungGenerationMb: take(parseIntEnv("ARTILLERY_CHILD_MAX_YOUNG_MB", "0"), 0),
-  };
-
-  const ingest = {
-    maxMessageBytes: take(parseIntEnv("INGEST_MAX_MESSAGE_BYTES", "1048576"), 1048576),
-    maxBatchPoints: take(parseIntEnv("INGEST_MAX_BATCH_POINTS", "50000"), 50000),
   };
 
   const auth = {
@@ -142,43 +109,171 @@ function parseConfig(): Validation<ConfigError, AppConfig> {
     topic: process.env.KAFKA_TOPIC ?? "artillery.metrics",
   };
 
-  const ring = {
-    capacity: take(parseIntEnv("RING_CAPACITY", "16384"), 16384),
-    batchSize: take(parseIntEnv("FLUSH_BATCH_SIZE", "5000"), 5000),
-    flushIntervalMs: take(parseIntEnv("FLUSH_INTERVAL_MS", "500"), 500),
-    shards: Math.max(1, take(parseIntEnv("FLUSH_SHARDS", "4"), 4)),
-    slowDownThreshold: take(parseNumberEnv("INGEST_SLOWDOWN_THRESHOLD", "0.8"), 0.8),
-  };
+  const reportDir = process.env.ARTILLERY_REPORT_DIR ?? "data/reports";
 
-  const slo = {
-    p95Ms: take(parseNumberEnv("SLO_P95_MS", "400"), 400),
-    errorRate: take(parseNumberEnv("SLO_ERROR_RATE", "0.01"), 0.01),
-    windowRuns: take(parseIntEnv("SLO_WINDOW_RUNS", "30"), 30),
-    regressionDelta: take(parseNumberEnv("SLO_REGRESSION_DELTA", "1.2"), 1.2),
-  };
+  const server = Validation.ok<
+    ConfigError,
+    (
+      keepAliveTimeoutMs: number,
+    ) => (
+      headersTimeoutMs: number,
+    ) => (
+      requestTimeoutMs: number,
+    ) => (
+      maxRequestsPerSocket: number,
+    ) => (maxConnections: number) => AppConfig["server"]
+  >(
+    (keepAliveTimeoutMs) =>
+      (headersTimeoutMs) =>
+        (requestTimeoutMs) =>
+          (maxRequestsPerSocket) =>
+            (maxConnections) => ({
+              keepAliveTimeoutMs,
+              headersTimeoutMs,
+              requestTimeoutMs,
+              maxRequestsPerSocket,
+              maxConnections,
+            }),
+  )
+    .ap(parseIntEnv("SERVER_KEEP_ALIVE_TIMEOUT_MS", "65000"))
+    .ap(parseIntEnv("SERVER_HEADERS_TIMEOUT_MS", "66000"))
+    .ap(parseIntEnv("SERVER_REQUEST_TIMEOUT_MS", "120000"))
+    .ap(parseIntEnv("SERVER_MAX_REQUESTS_PER_SOCKET", "1000"))
+    .ap(parseIntEnv("SERVER_MAX_CONNECTIONS", "0"));
 
-  const built: AppConfig = {
-    port,
-    ingestPort,
-    serviceRole,
-    ingestUrl,
-    databaseUrl,
-    log,
-    server,
-    artillery,
-    ingest,
-    auth,
-    cors,
-    ui,
-    kafka,
-    ring,
-    slo,
-  };
+  const artillery = Validation.ok<
+    ConfigError,
+    (
+      maxConcurrentRuns: number,
+    ) => (
+      childMaxOldGenerationMb: number,
+    ) => (childMaxYoungGenerationMb: number) => AppConfig["artillery"]
+  >(
+    (maxConcurrentRuns) =>
+      (childMaxOldGenerationMb) =>
+        (childMaxYoungGenerationMb) => ({
+          reportDir,
+          maxConcurrentRuns,
+          childMaxOldGenerationMb,
+          childMaxYoungGenerationMb,
+        }),
+  )
+    .ap(parseIntEnv("ARTILLERY_MAX_CONCURRENT", "4"))
+    .ap(parseIntEnv("ARTILLERY_CHILD_MAX_OLD_MB", "0"))
+    .ap(parseIntEnv("ARTILLERY_CHILD_MAX_YOUNG_MB", "0"));
 
-  if (errors.length > 0) {
-    return Validation.failFromArray<ConfigError, AppConfig>(errors);
-  }
-  return Validation.ok(built);
+  const ingest = Validation.ok<
+    ConfigError,
+    (maxMessageBytes: number) => (maxBatchPoints: number) => AppConfig["ingest"]
+  >((maxMessageBytes) => (maxBatchPoints) => ({
+    maxMessageBytes,
+    maxBatchPoints,
+  }))
+    .ap(parseIntEnv("INGEST_MAX_MESSAGE_BYTES", "1048576"))
+    .ap(parseIntEnv("INGEST_MAX_BATCH_POINTS", "50000"));
+
+  const ring = Validation.ok<
+    ConfigError,
+    (
+      capacity: number,
+    ) => (
+      batchSize: number,
+    ) => (
+      flushIntervalMs: number,
+    ) => (shards: number) => (slowDownThreshold: number) => AppConfig["ring"]
+  >(
+    (capacity) =>
+      (batchSize) =>
+        (flushIntervalMs) =>
+          (shards) =>
+            (slowDownThreshold) => ({
+              capacity,
+              batchSize,
+              flushIntervalMs,
+              shards: Math.max(1, shards),
+              slowDownThreshold,
+            }),
+  )
+    .ap(parseIntEnv("RING_CAPACITY", "16384"))
+    .ap(parseIntEnv("FLUSH_BATCH_SIZE", "5000"))
+    .ap(parseIntEnv("FLUSH_INTERVAL_MS", "500"))
+    .ap(parseIntEnv("FLUSH_SHARDS", "4"))
+    .ap(parseNumberEnv("INGEST_SLOWDOWN_THRESHOLD", "0.8"));
+
+  const slo = Validation.ok<
+    ConfigError,
+    (
+      p95Ms: number,
+    ) => (
+      errorRate: number,
+    ) => (windowRuns: number) => (regressionDelta: number) => AppConfig["slo"]
+  >(
+    (p95Ms) =>
+      (errorRate) =>
+        (windowRuns) =>
+          (regressionDelta) => ({
+            p95Ms,
+            errorRate,
+            windowRuns,
+            regressionDelta,
+          }),
+  )
+    .ap(parseNumberEnv("SLO_P95_MS", "400"))
+    .ap(parseNumberEnv("SLO_ERROR_RATE", "0.01"))
+    .ap(parseIntEnv("SLO_WINDOW_RUNS", "30"))
+    .ap(parseNumberEnv("SLO_REGRESSION_DELTA", "1.2"));
+
+  return Validation.ok<
+    ConfigError,
+    (
+      port: number,
+    ) => (
+      ingestPort: number,
+    ) => (
+      serviceRole: "all" | "api" | "ingest",
+    ) => (
+      serverValue: AppConfig["server"],
+    ) => (
+      artilleryValue: AppConfig["artillery"],
+    ) => (
+      ingestValue: AppConfig["ingest"],
+    ) => (
+      ringValue: AppConfig["ring"],
+    ) => (sloValue: AppConfig["slo"]) => AppConfig
+  >(
+    (port) =>
+      (ingestPort) =>
+        (serviceRole) =>
+          (serverValue) =>
+            (artilleryValue) =>
+              (ingestValue) =>
+                (ringValue) =>
+                  (sloValue) => ({
+                    port,
+                    ingestPort,
+                    serviceRole,
+                    ingestUrl,
+                    databaseUrl,
+                    log,
+                    server: serverValue,
+                    artillery: artilleryValue,
+                    ingest: ingestValue,
+                    auth,
+                    cors,
+                    ui,
+                    kafka,
+                    ring: ringValue,
+                    slo: sloValue,
+                  }),
+  )
+    .ap(parseIntEnv("PORT", "3000"))
+    .ap(parseIntEnv("INGEST_PORT", "0"))
+    .ap(parseServiceRole())
+    .ap(server)
+    .ap(artillery)
+    .ap(ingest)
+    .ap(ring)
+    .ap(slo);
 }
 
 export const config = parseConfig().match({

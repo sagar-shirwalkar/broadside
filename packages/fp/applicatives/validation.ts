@@ -101,17 +101,17 @@ export class Validation<V, A> {
    * `ok(fn).ap(fail(vs2))` → `fail(...vs2)`           — fn succeeded but arg failed.
    * `fail(vs1).ap(fail(vs2))` → `fail([...vs1,...vs2])` — both failed, all collected.
    */
-  ap<B>(that: Validation<V, B>): Validation<V, A> {
+  ap<B, R = A extends (a: B) => infer Out ? Out : never>(that: Validation<V, B>): Validation<V, R> {
     if (this.tag === 'ok' && that.tag === 'ok') {
-      return Validation.ok<V, A>((this.value as unknown as (a: B) => A)(that.value as B))
+      return Validation.ok<V, R>((this.value as unknown as (a: B) => R)(that.value as B))
     }
     if (this.tag === 'fail' && that.tag === 'fail') {
-      return Validation.failFromArray<V, A>([...this.violations, ...that.violations])
+      return Validation.failFromArray<V, R>([...this.violations, ...that.violations])
     }
     if (this.tag === 'fail') {
-      return Validation.failFromArray<V, A>(this.violations)
+      return Validation.failFromArray<V, R>(this.violations)
     }
-    return Validation.failFromArray<V, A>(that.violations)
+    return Validation.failFromArray<V, R>(that.violations)
   }
 
   /**

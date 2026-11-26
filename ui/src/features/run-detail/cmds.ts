@@ -1,4 +1,4 @@
-import { Either } from "@broadside/fp/either";
+import { Maybe } from "@broadside/fp/maybe";
 import type { Cmd } from "../../core/types.ts";
 import { api, apiGet, ApiError } from "../../services/api.ts";
 import type { ChartSeries, EndpointRow, Granularity, MetricRow, PhaseAnnotation, RawRow, RunRow } from "../../types.ts";
@@ -7,25 +7,20 @@ import type { Action, PanelKey } from "./types.ts";
 
 const MAX_ENDPOINT_SERIES = 8;
 
-type RunLoadError = "missing" | "error";
-
-async function loadRun(runId: string): Promise<Either<RunLoadError, RunRow>> {
+async function loadRun(runId: string): Promise<Maybe<RunRow>> {
   try {
     const run = await apiGet<RunRow>(`/api/runs/${encodeURIComponent(runId)}`);
-    return Either.right(run);
+    return Maybe.fromNullable(run);
   } catch (err) {
-    if (err instanceof ApiError && err.status === 404) return Either.left("missing");
-    return Either.left("error");
+    if (err instanceof ApiError && err.status === 404) return Maybe.nothing();
+    return Maybe.nothing();
   }
 }
 
 export function fetchRun(runId: string): Cmd<Action> {
   return async () => {
-    const result = await loadRun(runId);
-    return result.match<Action>({
-      left: (reason) => (reason === "missing" ? { type: "missing" } : { type: "loading_done" }),
-      right: (run) => ({ type: "run_loaded", run }),
-    });
+    const run = await loadRun(runId);
+    return { type: "run_resolved", run };
   };
 }
 

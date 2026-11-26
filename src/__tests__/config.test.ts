@@ -201,4 +201,28 @@ describe("config", () => {
       },
     });
   });
+
+  it("accumulates multiple configuration violations", async () => {
+    process.env.PORT = "not-a-port";
+    process.env.SERVICE_ROLE = "bogus";
+    process.env.RING_CAPACITY = "nope";
+
+    await expect(import(".././config.ts")).rejects.toThrowError(
+      expect.objectContaining({
+        message: expect.stringMatching(/Invalid configuration:/),
+      }),
+    );
+
+    try {
+      await import(".././config.ts");
+      throw new Error("expected config import to fail");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      expect(message).toContain('PORT must be an integer (got "not-a-port")');
+      expect(message).toContain(
+        'SERVICE_ROLE must be one of "all" | "api" | "ingest" (got "bogus")',
+      );
+      expect(message).toContain('RING_CAPACITY must be an integer (got "nope")');
+    }
+  });
 });

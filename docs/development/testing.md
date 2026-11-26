@@ -2,18 +2,20 @@
 
 ## Test layers
 
-- **Server/unit & integration (Vitest):** `test/` covers routes, normalization, flusher, orchestration, auth/config behavior, etc.
-- **UI unit tests (Vitest):** `ui/` package tests for pure logic (routing, formatting, chart helpers where covered).
+- **Server/root (Vitest):** co-located tests under `src/**/__tests__` (routes, normalization, flusher, orchestration, auth/config, etc.) and, if present, `test/**/*.test.ts`.
+- **`@broadside/fp` package (Vitest):** `packages/fp/**/__tests__/*.test.ts` (included in root Vitest runs).
+- **UI unit tests (Vitest):** `ui/src/**/__tests__` for pure logic/routing/formatting/helpers where covered.
 - **UI E2E (Playwright):** `ui/e2e/` scenarios run against the Vite dev server with the API stubbed at the network layer (no database/Artillery required).
-- **Property/fuzz boundary tests:** `test/normalize.fuzz.test.ts` (fast-check) validates ingestion normalization invariants.
+- **Property/fuzz boundary tests:** `src/lib/__tests__/normalize.fuzz.test.ts` (fast-check) validates ingestion normalization invariants.
 
 ## Commands
 
 From repo root:
 
 ```bash
-pnpm test                 # server/unit+integration tests
-pnpm test:coverage        # server tests with 80% coverage gate
+pnpm test                 # root Vitest suite (src, test, packages/fp)
+pnpm test:coverage        # root tests with coverage thresholds (see vitest.config.ts)
+pnpm task fp:test         # @broadside/fp package tests only
 pnpm task lint            # type-check (server/root)
 pnpm task ui:test         # UI unit tests
 pnpm task ui:test:e2e     # UI E2E tests (Playwright, stubbed API)
@@ -30,8 +32,8 @@ cd ui && pnpm exec playwright test e2e/broadside.spec.ts
 
 ## Coverage and gates
 
-- Server coverage gate: **80%** (statements/branches/functions/lines) via `pnpm test:coverage`.
-- CI runs proto freshness check, lint/typecheck, server tests/coverage, and builds (plus Docker image build on relevant branches/workflows as configured).
+- Root `pnpm test:coverage` enforces coverage thresholds defined in `vitest.config.ts` (includes configured `src/` modules; FP package tests run but are not part of that coverage include set).
+- CI `check` job runs proto freshness, lint/typecheck, `pnpm test:coverage`, server build (`pnpm task fp:build && pnpm build`), and UI build/typecheck/unit tests. Separate jobs run UI E2E and Docker Compose smoke checks.
 - UI build includes `tsc --noEmit`; root `tsc` does not typecheck `ui/`.
 
 ## Testing conventions and notes
@@ -45,7 +47,7 @@ cd ui && pnpm exec playwright test e2e/broadside.spec.ts
 
 ## When to run what
 
-- **Most code changes:** `pnpm task lint` and relevant `pnpm test`/targeted tests; `pnpm test:coverage` before finishing significant backend changes.
+- **Most code changes:** `pnpm task lint` and relevant `pnpm test`/targeted tests (or `pnpm task fp:test` for FP-only changes); `pnpm test:coverage` before finishing significant backend changes.
 - **Proto changes:** `pnpm task proto`, `pnpm task proto:check`, and affected tests.
 - **UI behavior/routing/API contract changes:** `cd ui && pnpm typecheck`, `pnpm task ui:test`, and `pnpm task ui:test:e2e` (or targeted spec).
 - **Schema/query/rollup changes:** run DB against updated schema (`db:init`/reset volume as appropriate) and validate affected endpoints/queries.

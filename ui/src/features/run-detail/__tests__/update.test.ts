@@ -6,16 +6,27 @@ function baseState(): State {
   return { ...initialState("run-1") };
 }
 
+import { Maybe } from "@broadside/fp/maybe";
+
 describe("run-detail update", () => {
-  it("sets run and chooses 10s granularity for short runs", () => {
+  it("resolves a run and chooses 10s granularity for short runs", () => {
     const state = baseState();
     const next = update(state, {
-      type: "run_loaded",
-      run: { id: "run-1", duration_ms: 60_000, started_at: "2026-01-01T00:00:00Z" } as any,
+      type: "run_resolved",
+      run: Maybe.just({ id: "run-1", duration_ms: 60_000, started_at: "2026-01-01T00:00:00Z" } as any),
     });
+    expect(next.loading).toBe(false);
     expect(next.run.isJust()).toBe(true);
     expect(next.run.toNullable()?.id).toBe("run-1");
     expect(next.granularity).toBe("10s");
+  });
+
+  it("resolves absence as Maybe.nothing and stops loading", () => {
+    let state = update(baseState(), { type: "load_started" });
+    expect(state.loading).toBe(true);
+    state = update(state, { type: "run_resolved", run: Maybe.nothing() });
+    expect(state.loading).toBe(false);
+    expect(state.run.isNothing()).toBe(true);
   });
 
   it("sets endpoint and clears zoom state", () => {
@@ -27,15 +38,5 @@ describe("run-detail update", () => {
     expect(next.endpoint).toBe("/api");
     expect(next.zoomByPanel.size).toBe(0);
     expect(next.rawByPanel.size).toBe(0);
-  });
-
-  it("marks missing and loading transitions", () => {
-    let state = update(baseState(), { type: "load_started" });
-    expect(state.loading).toBe(true);
-    expect(state.run.isNothing()).toBe(true);
-    state = update(state, { type: "missing" });
-    expect(state.run.isNothing()).toBe(true);
-    state = update(state, { type: "loading_done" });
-    expect(state.loading).toBe(false);
   });
 });

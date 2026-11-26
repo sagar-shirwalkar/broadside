@@ -23,11 +23,3 @@ export * from "./combinators/match.ts"
 export * from "./combinators/pipe.ts"
 export * from "./combinators/predicate.ts"
 export * from "./combinators/record.ts"
-export * from "./combinators/tuple.ts"
-
-export * from "./patterns/drain.ts"
-export * from "./patterns/monoid.ts"
-export * from "./patterns/trampoline.ts"
-export * from "./patterns/transducers.ts"
-
-export * from "./typesystem/brand.ts"

@@ -51,6 +51,7 @@ Guidelines:
 - `SERVER_HEADERS_TIMEOUT_MS` (default `66000`): must be greater than keep-alive timeout.
 - `SERVER_REQUEST_TIMEOUT_MS` (default `120000`, `0` disables).
 - `SERVER_MAX_REQUESTS_PER_SOCKET` (default `1000`, `0` disables): rotates sockets to bound per-connection creep.
+- `SERVER_MAX_CONNECTIONS` (default `0`, Node default/unlimited): caps concurrent HTTP server connections.
 
 ### Ingestion/flusher (`RING_*`, `FLUSH_*`, `INGEST_*`)
 

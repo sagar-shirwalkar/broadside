@@ -16,5 +16,5 @@
     "incremental": true
   },
   "include": ["./**/*.ts"],
-  "exclude": ["dist", "node_modules"]
+  "exclude": ["dist", "node_modules", "**/*.test.ts", "**/__tests__/**"]
 }

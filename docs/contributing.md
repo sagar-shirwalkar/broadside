@@ -10,12 +10,13 @@ Run the relevant checks for your change:
 pnpm task proto:check      # if proto/generated files are involved
 pnpm task lint
 pnpm test:coverage
-pnpm build
+pnpm task build            # builds @broadside/fp, server, and UI
 ```
 
-For UI changes, also run as applicable:
+For UI or `@broadside/fp` changes, also run as applicable:
 
 ```bash
+pnpm task fp:test
 cd ui && pnpm typecheck
 pnpm task ui:test
 pnpm task ui:test:e2e

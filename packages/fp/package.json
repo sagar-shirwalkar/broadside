@@ -44,36 +44,6 @@
       "source": "./combinators/record.ts",
       "types": "./dist/combinators/record.d.ts",
       "import": "./dist/combinators/record.js"
-    },
-    "./tuple": {
-      "source": "./combinators/tuple.ts",
-      "types": "./dist/combinators/tuple.d.ts",
-      "import": "./dist/combinators/tuple.js"
-    },
-    "./drain": {
-      "source": "./patterns/drain.ts",
-      "types": "./dist/patterns/drain.d.ts",
-      "import": "./dist/patterns/drain.js"
-    },
-    "./monoid": {
-      "source": "./patterns/monoid.ts",
-      "types": "./dist/patterns/monoid.d.ts",
-      "import": "./dist/patterns/monoid.js"
-    },
-    "./trampoline": {
-      "source": "./patterns/trampoline.ts",
-      "types": "./dist/patterns/trampoline.d.ts",
-      "import": "./dist/patterns/trampoline.js"
-    },
-    "./transducers": {
-      "source": "./patterns/transducers.ts",
-      "types": "./dist/patterns/transducers.d.ts",
-      "import": "./dist/patterns/transducers.js"
-    },
-    "./brand": {
-      "source": "./typesystem/brand.ts",
-      "types": "./dist/typesystem/brand.d.ts",
-      "import": "./dist/typesystem/brand.js"
     }
   },
   "scripts": {

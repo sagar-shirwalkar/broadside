@@ -7,14 +7,20 @@ export function update(state: State, action: Action): State {
       return { ...state, runId: action.runId };
     case "load_started":
       return { ...state, loading: true, run: Maybe.nothing() };
-    case "run_loaded":
-      return {
-        ...state,
-        run: Maybe.just(action.run),
-        granularity: (action.run.duration_ms ?? Infinity) < 120_000 ? "10s" : "1m",
-      };
-    case "missing":
-      return { ...state, run: Maybe.nothing() };
+    case "run_resolved":
+      return action.run.match({
+        just: (run) => ({
+          ...state,
+          loading: false,
+          run: Maybe.just(run),
+          granularity: (run.duration_ms ?? Infinity) < 120_000 ? "10s" : "1m",
+        }),
+        nothing: () => ({
+          ...state,
+          loading: false,
+          run: Maybe.nothing(),
+        }),
+      });
     case "metrics_loaded":
       return { ...state, rows: action.rows };
     case "previous_loaded":
