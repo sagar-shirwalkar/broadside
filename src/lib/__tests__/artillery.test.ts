@@ -616,7 +616,7 @@ describe("spawnArtillery", () => {
     expect(h.writeFile).toHaveBeenCalledWith(
       "/tmp/artillery-run-1/broadside-reporter.cjs",
       expect.stringContaining("broadside-reporter"),
-      "utf-8",
+      expect.objectContaining({ encoding: "utf-8", flag: "wx", mode: 0o600 }),
     );
     expect(isRunActive("run-1")).toBe(true);
 
@@ -821,6 +821,9 @@ describe("prepareScriptForLive", () => {
       (c) => c[0] === "/tmp/artillery-run-1/script.live.yml",
     );
     expect(written).toBeTruthy();
+    expect(written?.[2]).toEqual(
+      expect.objectContaining({ encoding: "utf-8", flag: "wx", mode: 0o600 }),
+    );
     const text = String(written?.[1]);
     expect(text).toContain("statsInterval: 1");
     expect(text).not.toContain("broadside-reporter");

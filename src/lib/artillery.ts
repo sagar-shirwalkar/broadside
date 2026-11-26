@@ -99,10 +99,17 @@ export interface SpawnOptions {
 export async function spawnArtillery(opts: SpawnOptions): Promise<void> {
   const { runId, scriptPath, extraArgs = [] } = opts;
 
+  // mkdtemp creates a unique directory with mode 0700. Files inside are also
+  // created with mode 0600 (owner-only) so neither the script nor the report
+  // is readable by other local users, even if the temp dir were exposed.
   const tmpDir = await mkdtemp(join(tmpdir(), `artillery-${safeName(runId)}-`));
   const outputFile = join(tmpDir, "report.json");
   const pluginPath = join(tmpDir, "broadside-reporter.cjs");
-  await writeFile(pluginPath, renderBroadsideReporterPlugin(), "utf-8");
+  await writeFile(pluginPath, renderBroadsideReporterPlugin(), {
+    encoding: "utf-8",
+    flag: "wx",
+    mode: 0o600,
+  });
 
   const ingestUrl = resolveIngestWsUrl();
   const effectiveScriptPath = await prepareScriptForLive(scriptPath, tmpDir);
@@ -725,7 +732,11 @@ export async function prepareScriptForLive(
     parsed.config = parsed.config && typeof parsed.config === "object" ? parsed.config : {};
     if (parsed.config.statsInterval == null) parsed.config.statsInterval = 1;
     const outPath = join(tmpDir, "script.live.yml");
-    await writeFile(outPath, stringifyYaml(parsed), { encoding: "utf-8", flag: "wx" });
+    await writeFile(outPath, stringifyYaml(parsed), {
+      encoding: "utf-8",
+      flag: "wx",
+      mode: 0o600,
+    });
     return outPath;
   } catch {
     return scriptPath;
