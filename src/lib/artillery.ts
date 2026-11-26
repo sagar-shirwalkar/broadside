@@ -725,7 +725,7 @@ export async function prepareScriptForLive(
     parsed.config = parsed.config && typeof parsed.config === "object" ? parsed.config : {};
     if (parsed.config.statsInterval == null) parsed.config.statsInterval = 1;
     const outPath = join(tmpDir, "script.live.yml");
-    await writeFile(outPath, stringifyYaml(parsed), "utf-8");
+    await writeFile(outPath, stringifyYaml(parsed), { encoding: "utf-8", flag: "wx" });
     return outPath;
   } catch {
     return scriptPath;
