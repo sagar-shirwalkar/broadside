@@ -1,6 +1,9 @@
 import { defineConfig } from "vitest/config";
 
 export default defineConfig({
+  resolve: {
+      conditions: ["source", "import", "module", "browser", "default"],
+    },
   test: {
     environment: "node",
     include: ["src/**/*.test.ts", "test/**/*.test.ts", "packages/fp/**/*.test.ts"],
@@ -10,6 +13,9 @@ export default defineConfig({
       provider: "v8",
       reporter: ["text", "html", "lcov"],
       include: [
+        "src/**/*.test.ts",
+        "test/**/*.test.ts",
+        "packages/fp/**/*.test.ts",
         "src/config.ts",
         "src/db/client.ts",
         "src/lib/ring-buffer.ts",
