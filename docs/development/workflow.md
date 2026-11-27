@@ -63,9 +63,8 @@ pnpm task setup
 
 ## Artillery/orchestration development notes
 
-- `POST /api/runs` requires `script_path` and rejects traversal (`..`), oversized config, duplicate active IDs, and capacity exhaustion (`ARTILLERY_MAX_CONCURRENT`).
-- Runs spawn `artillery run <script> --output <tmp>/report.json --quiet ...`; report parsing and ingestion happen after process exit.
-- Completed reports are persisted under `ARTILLERY_REPORT_DIR` (default `data/reports`).
+- `POST /api/runs` accepts `script_path` (server-visible path) or `script_content` (uploaded script text). It rejects traversal (`..`) in user-supplied paths, oversized script/config bodies, duplicate active IDs, and capacity exhaustion (`ARTILLERY_MAX_CONCURRENT`).
+- Runs spawn `artillery run <script> --output <tmp>/report.json --quiet ...` with a temporary Broadside reporter plugin (`config.plugins.broadside-reporter`, `ARTILLERY_PLUGIN_PATH`) for live metric streaming; on exit, the final report reconciles provisional streamed rows and is persisted under `ARTILLERY_REPORT_DIR` (default `data/reports`).
 - `failure_reason`, `partial_data`, and `dropped_points` capture abnormal termination and ingestion-loss signals.
 - `/livez` is liveness; `/readyz` (or `/api/health/ready`) is readiness and includes DB/flusher telemetry (and aggregate service checks in split deployments).
 

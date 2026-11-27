@@ -30,7 +30,8 @@ test("new run: dialog submits and navigates to the live view", async ({
   const sheet = page.locator("broadside-trigger-dialog .sheet");
   await expect(sheet).toBeVisible();
 
-  await page.locator("broadside-trigger-dialog input.input").first().fill("./load-test.yml");
+  await sheet.getByText("use server path instead").click();
+  await sheet.getByPlaceholder("./load-test.yml").fill("./load-test.yml");
   await sheet.getByRole("button", { name: /start run/i }).click();
 
   await expect.poll(() => page.url()).toContain("#/runs/run-new-cccc/live");

@@ -556,22 +556,67 @@ describe("runs routes", () => {
     });
   });
 
-  it("requires a script path", async () => {
+  it("requires a script path or script content", async () => {
     const res = await client.index.$post({ json: { id: "run-1" } });
 
     expect(res.status).toBe(400);
-    expect(await res.json()).toEqual({ error: "script_path is required" });
+    expect(await res.json()).toEqual({
+      error: "script_path or script_content is required",
+    });
     expect(h.spawnArtillery).not.toHaveBeenCalled();
     expect(h.sqlMock).not.toHaveBeenCalled();
   });
 
-  it("rejects a blank script path", async () => {
+  it("rejects a blank script path when no content is provided", async () => {
     const res = await client.index.$post({
       json: { id: "run-1", script_path: "   " },
     });
 
     expect(res.status).toBe(400);
-    expect(await res.json()).toEqual({ error: "script_path is required" });
+    expect(await res.json()).toEqual({
+      error: "script_path or script_content is required",
+    });
+  });
+
+  it("accepts uploaded script content", async () => {
+    const script = "config:\n  target: http://localhost:3000\nscenarios: []\n";
+    const res = await client.index.$post({
+      json: { id: "run-1", script_content: script, script_path: "my-test.yml" },
+    });
+
+    expect(res.status).toBe(201);
+    expect(h.spawnArtillery).toHaveBeenCalledWith({
+      runId: "run-1",
+      scriptPath: "my-test.yml",
+      scriptContent: script,
+      extraArgs: undefined,
+    });
+    expect(h.sqlMock.mock.calls[0]?.[2]).toBe(script);
+  });
+
+  it("defaults script path for uploaded content", async () => {
+    const script = "config:\n  target: http://localhost:3000\nscenarios: []\n";
+    const res = await client.index.$post({
+      json: { id: "run-1", script_content: script },
+    });
+
+    expect(res.status).toBe(201);
+    expect(h.spawnArtillery).toHaveBeenCalledWith({
+      runId: "run-1",
+      scriptPath: "uploaded-script.yml",
+      scriptContent: script,
+      extraArgs: undefined,
+    });
+  });
+
+  it("rejects oversized script content", async () => {
+    const res = await client.index.$post({
+      json: { id: "run-1", script_content: "x".repeat(200_001) },
+    });
+
+    expect(res.status).toBe(413);
+    expect(await res.json()).toEqual({ error: "script_content too large" });
+    expect(h.spawnArtillery).not.toHaveBeenCalled();
   });
 
   it("rejects a script path with traversal", async () => {

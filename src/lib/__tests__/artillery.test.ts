@@ -586,8 +586,6 @@ describe("spawnArtillery", () => {
       expect.arrayContaining([
         "run",
         "/tmp/artillery-run-1/script.live.yml",
-        "-p",
-        "/tmp/artillery-run-1/broadside-reporter.cjs",
         "--output",
         "/tmp/artillery-run-1/report.json",
         "--quiet",
@@ -605,17 +603,23 @@ describe("spawnArtillery", () => {
       }),
     );
     const argv = h.spawn.mock.calls[0]?.[1] as string[];
-    expect(argv).toContain("-p");
-    expect(argv[argv.indexOf("-p") + 1]).toBe(
-      "/tmp/artillery-run-1/broadside-reporter.cjs",
+    // -p is Artillery's --payload (CSV) flag; plugin must be loaded via
+    // config.plugins + ARTILLERY_PLUGIN_PATH, not -p.
+    expect(argv).not.toContain("-p");
+    const env = (h.spawn.mock.calls[0]?.[2] as any)?.env;
+    expect(String(env?.ARTILLERY_PLUGIN_PATH ?? "")).toContain(
+      "/tmp/artillery-run-1",
     );
-    expect(
-      String((h.spawn.mock.calls[0]?.[2] as any)?.env?.NODE_PATH ?? ""),
-    ).not.toContain("/tmp/artillery-run-1");
-    // plugin file written for -p loading
+    expect(String(env?.NODE_PATH ?? "")).not.toContain("/tmp/artillery-run-1");
+    // plugin package written for ARTILLERY_PLUGIN_PATH resolution
     expect(h.writeFile).toHaveBeenCalledWith(
-      "/tmp/artillery-run-1/broadside-reporter.cjs",
+      "/tmp/artillery-run-1/artillery-plugin-broadside-reporter/index.cjs",
       expect.stringContaining("broadside-reporter"),
+      expect.objectContaining({ encoding: "utf-8", flag: "wx", mode: 0o600 }),
+    );
+    expect(h.writeFile).toHaveBeenCalledWith(
+      "/tmp/artillery-run-1/artillery-plugin-broadside-reporter/package.json",
+      expect.stringContaining("artillery-plugin-broadside-reporter"),
       expect.objectContaining({ encoding: "utf-8", flag: "wx", mode: 0o600 }),
     );
     expect(isRunActive("run-1")).toBe(true);
@@ -801,7 +805,7 @@ describe("spawnArtillery", () => {
 
 
 describe("prepareScriptForLive", () => {
-  it("injects statsInterval for YAML scripts without registering a plugin", async () => {
+  it("injects statsInterval and registers the live reporter plugin", async () => {
     h.readFile.mockResolvedValueOnce(
       "config:\n  target: http://localhost\nscenarios: []\n",
     );
@@ -826,8 +830,8 @@ describe("prepareScriptForLive", () => {
     );
     const text = String(written?.[1]);
     expect(text).toContain("statsInterval: 1");
-    expect(text).not.toContain("broadside-reporter");
-    expect(text).not.toContain("plugins:");
+    expect(text).toContain("broadside-reporter");
+    expect(text).toContain("plugins:");
   });
 });
 

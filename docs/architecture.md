@@ -43,7 +43,7 @@ The dashboard readiness endpoint can **aggregate service health** (dashboard pro
 | WebSocket `/ws` | `src/server/app.ts` (`createApp` / `createIngestApp`) | JSON `{ run_id, points[] }` or single point | Normalized/validated by `normalizeBatch` (`@zod/mini`) at boundary; size/batch caps enforced; may emit `slow_down` control frames under pressure. |
 | Connect/gRPC | `src/server/grpc.ts` | Protobuf `MetricBatch` | `StreamMetrics` (client streaming) and `PushMetrics` (unary) map to domain `MetricPoint`s and ingest via flusher. |
 | Kafka (optional) | `src/server/kafka.ts` | JSON `MetricBatch` | Enabled only when `KAFKA_BROKERS` is set; consumed in `ingest`/`all` roles. |
-| Orchestrated run report | `src/server/routes/runs.ts` + `src/lib/artillery.ts` | Artillery JSON report | `POST /api/runs` spawns Artillery; report is parsed at process exit into points and ingested through the flusher. |
+| Orchestrated run report/stream | `src/server/routes/runs.ts` + `src/lib/artillery.ts` | Artillery stats events + final JSON report | `POST /api/runs` spawns Artillery with a temporary Broadside reporter plugin (loaded via `config.plugins` + `ARTILLERY_PLUGIN_PATH`) that streams live points to `/ws` ingest; on exit the final report is parsed, provisional streamed rows are reconciled, and report-derived points are ingested through the flusher. |
 
 ### Isolation tiers
 
@@ -85,11 +85,12 @@ Best-effort per-run loss accounting persists:
 
 `src/lib/artillery.ts` manages orchestrated runs:
 
-1. `POST /api/runs` validates input (`script_path`, traversal checks, config/body limits), rejects duplicate active IDs (`409`) and capacity exhaustion (`429`), inserts `runs` row as `running`.
-2. Spawns `artillery run <script> --output <tmp>/report.json --quiet` (plus args). Active runs are tracked in-memory.
-3. On clean exit, report is parsed into points, ingested via flusher, copied to `ARTILLERY_REPORT_DIR`, and run marked `completed` (clearing `failure_reason` as appropriate).
-4. Failures (spawn/start/report/DB/exit) mark run `failed` with a `failure_reason` (e.g. `start_failed`, `spawn_error`, `artillery_exit_nonzero`, `report_processing_failed`, `killed`). Temp artifacts are cleaned up.
-5. Kill/delete paths and settled guards prevent double-processing of close/error events.
+1. `POST /api/runs` validates input (`script_path` or `script_content`, traversal checks, size/body limits), rejects duplicate active IDs (`409`) and capacity exhaustion (`429`), inserts `runs` row as `running`.
+2. Spawns `artillery run <script> --output <tmp>/report.json --quiet` (plus args). The script is prepared with `statsInterval: 1` and a temporary `broadside-reporter` plugin; the child gets `BROADSIDE_RUN_ID`, `BROADSIDE_INGEST_URL`, and `ARTILLERY_PLUGIN_PATH`. Active runs are tracked in-memory.
+3. During execution, the reporter plugin streams metric points to ingest (`/ws`), which buffers/writes them to `metrics` for live SSE/raw views.
+4. On clean exit, the final report is parsed; provisional streamed rows for the run are replaced with report-derived points, the report is copied to `ARTILLERY_REPORT_DIR`, and the run is marked `completed` (clearing `failure_reason` as appropriate).
+5. Failures (spawn/start/report/DB/exit) mark run `failed` with a `failure_reason` (e.g. `start_failed`, `spawn_error`, `artillery_exit_nonzero`, `report_processing_failed`, `killed`). Temp artifacts are cleaned up.
+6. Kill/delete paths and settled guards prevent double-processing of close/error events.
 
 ### Report parsing highlights
 

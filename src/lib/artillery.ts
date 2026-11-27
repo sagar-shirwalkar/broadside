@@ -89,6 +89,7 @@ const activeRuns = new Map<string, ActiveRun>();
 export interface SpawnOptions {
   runId: string;
   scriptPath: string;
+  scriptContent?: string;
   extraArgs?: string[];
 }
 
@@ -97,28 +98,35 @@ export interface SpawnOptions {
  * process has been started; completion is handled asynchronously.
  */
 export async function spawnArtillery(opts: SpawnOptions): Promise<void> {
-  const { runId, scriptPath, extraArgs = [] } = opts;
+  const { runId, scriptPath, scriptContent, extraArgs = [] } = opts;
 
   // mkdtemp creates a unique directory with mode 0700. Files inside are also
   // created with mode 0600 (owner-only) so neither the script nor the report
   // is readable by other local users, even if the temp dir were exposed.
   const tmpDir = await mkdtemp(join(tmpdir(), `artillery-${safeName(runId)}-`));
   const outputFile = join(tmpDir, "report.json");
-  const pluginPath = join(tmpDir, "broadside-reporter.cjs");
-  await writeFile(pluginPath, renderBroadsideReporterPlugin(), {
+
+  // Artillery resolves plugins from config.plugins by looking for
+  // artillery-plugin-<name> in ARTILLERY_PLUGIN_PATH / node_modules.
+  const pluginPkgDir = join(tmpDir, "artillery-plugin-broadside-reporter");
+  await mkdir(pluginPkgDir, { recursive: true, mode: 0o700 });
+  await writeFile(join(pluginPkgDir, "index.cjs"), renderBroadsideReporterPlugin(), {
     encoding: "utf-8",
     flag: "wx",
     mode: 0o600,
   });
+  await writeFile(
+    join(pluginPkgDir, "package.json"),
+    JSON.stringify({ name: "artillery-plugin-broadside-reporter", main: "index.cjs" }),
+    { encoding: "utf-8", flag: "wx", mode: 0o600 },
+  );
 
   const ingestUrl = resolveIngestWsUrl();
-  const effectiveScriptPath = await prepareScriptForLive(scriptPath, tmpDir);
+  const effectiveScriptPath = await prepareScriptForLive(scriptPath, tmpDir, scriptContent);
 
   const args = [
     "run",
     effectiveScriptPath,
-    "-p",
-    pluginPath,
     "--output",
     outputFile,
     "--quiet",
@@ -139,6 +147,10 @@ export async function spawnArtillery(opts: SpawnOptions): Promise<void> {
       ARTILLERY_DISABLE_TELEMETRY: "1",
       BROADSIDE_RUN_ID: runId,
       BROADSIDE_INGEST_URL: ingestUrl,
+      ARTILLERY_PLUGIN_PATH: [
+        tmpDir,
+        process.env.ARTILLERY_PLUGIN_PATH,
+      ].filter(Boolean).join(":"),
     };
     logger.info(
       {
@@ -146,7 +158,6 @@ export async function spawnArtillery(opts: SpawnOptions): Promise<void> {
         argv: ["artillery", ...args],
         ingestUrl,
         scriptPath: effectiveScriptPath,
-        pluginPath,
       },
       "[artillery] spawning run (live streaming enabled)",
     );
@@ -723,14 +734,29 @@ function resolveIngestWsUrl(): string {
 export async function prepareScriptForLive(
   scriptPath: string,
   tmpDir: string,
+  scriptContent?: string,
 ): Promise<string> {
-  if (!/\.ya?ml$/i.test(scriptPath)) return scriptPath;
+  const hasContent = typeof scriptContent === "string";
+  if (!hasContent && !/\.ya?ml$/i.test(scriptPath)) return scriptPath;
   try {
-    const raw = await readFile(scriptPath, "utf-8");
+    const raw = hasContent ? scriptContent : await readFile(scriptPath, "utf-8");
     const parsed = parseYaml(raw) as any;
-    if (!parsed || typeof parsed !== "object") return scriptPath;
+    if (!parsed || typeof parsed !== "object") {
+      if (hasContent) {
+        throw new Error("script content must be a YAML object");
+      }
+      return scriptPath;
+    }
     parsed.config = parsed.config && typeof parsed.config === "object" ? parsed.config : {};
     if (parsed.config.statsInterval == null) parsed.config.statsInterval = 1;
+    parsed.config.plugins =
+      parsed.config.plugins && typeof parsed.config.plugins === "object"
+        ? parsed.config.plugins
+        : {};
+    // Register temp live-stream reporter plugin (resolved via ARTILLERY_PLUGIN_PATH).
+    parsed.config.plugins["broadside-reporter"] = {
+      ...(parsed.config.plugins["broadside-reporter"] ?? {}),
+    };
     const outPath = join(tmpDir, "script.live.yml");
     await writeFile(outPath, stringifyYaml(parsed), {
       encoding: "utf-8",
@@ -738,7 +764,8 @@ export async function prepareScriptForLive(
       mode: 0o600,
     });
     return outPath;
-  } catch {
+  } catch (err) {
+    if (hasContent) throw err;
     return scriptPath;
   }
 }

@@ -485,21 +485,32 @@ runs.get("/:id/live", async (c) => {
 runs.post("/", async (c) => {
   const body = await c.req.json<{
     id?: string;
-    script_path: string;
+    script_path?: string;
+    script_content?: string;
     config?: string;
     extra_args?: string[];
   }>();
 
   const runId = body.id ?? crypto.randomUUID();
-  const scriptPath = body.script_path;
+  const scriptContent =
+    typeof body.script_content === "string" ? body.script_content : undefined;
+  const scriptPathRaw =
+    typeof body.script_path === "string" ? body.script_path : "";
+  const scriptPath =
+    scriptPathRaw.trim() || (scriptContent ? "uploaded-script.yml" : "");
 
-  if (typeof scriptPath !== "string" || scriptPath.trim() === "") {
-    return c.json({ error: "script_path is required" }, 400);
+  if (!scriptPath && !scriptContent) {
+    return c.json({ error: "script_path or script_content is required" }, 400);
   }
 
-  // Validate script path (basic: no traversal)
-  if (scriptPath.includes("..")) {
+  // Validate script path (basic: no traversal). Uploaded content uses a safe
+  // generated/default name; user-supplied paths are still checked.
+  if (scriptPathRaw.trim() && scriptPath.includes("..")) {
     return c.json({ error: "invalid script path" }, 400);
+  }
+
+  if (scriptContent && scriptContent.length > 200_000) {
+    return c.json({ error: "script_content too large" }, 413);
   }
 
   // Check if already running
@@ -518,10 +529,12 @@ runs.post("/", async (c) => {
     return c.json({ error: "config too large" }, 413);
   }
 
+  const configYaml = body.config ?? scriptContent ?? null;
+
   // Insert run row
   await sql`
     INSERT INTO runs (id, status, config_yaml)
-    VALUES (${runId}, 'running', ${body.config ?? null})
+    VALUES (${runId}, 'running', ${configYaml})
     ON CONFLICT (id) DO NOTHING
   `;
 
@@ -529,6 +542,7 @@ runs.post("/", async (c) => {
     await spawnArtillery({
       runId,
       scriptPath,
+      scriptContent,
       extraArgs: body.extra_args,
     });
   } catch (err) {

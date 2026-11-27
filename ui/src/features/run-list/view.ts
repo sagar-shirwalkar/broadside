@@ -87,7 +87,7 @@ export function view(
                 new CustomEvent("new-run", { bubbles: true, composed: true }),
               )}
           >
-            + new run
+            + New Run
           </button>
         </div>
       </div>
@@ -96,7 +96,7 @@ export function view(
         ${state.loading
           ? html`<broadside-skeleton variant="table"></broadside-skeleton>`
           : state.runs.length === 0
-            ? html`<p class="empty">// no runs yet — hit "+ new run"</p>`
+            ? html`<p class="empty">// no runs yet — hit "+ New Run"</p>`
             : html`<table>
                 <thead>
                   <tr>

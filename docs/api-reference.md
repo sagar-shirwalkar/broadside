@@ -77,17 +77,20 @@ Request body:
 {
   "id": "optional-run-id",
   "script_path": "./load-test.yml",
+  "script_content": "config:\n  target: https://example.com\n...",
   "config": "optional yaml/text metadata",
   "extra_args": ["--environment", "staging"]
 }
 ```
 
 Behavior highlights:
-- `script_path` is required and validated (path traversal rejected).
+- Provide `script_path` (server-visible path) or `script_content` (uploaded script text, e.g. from the dashboard). At least one is required.
+- `script_path` is trimmed; if omitted with `script_content`, Broadside defaults the name to `uploaded-script.yml`. User-supplied paths reject `..` traversal.
+- `script_content` and `config` are size-limited (200,000 bytes each); oversized payloads return `413`.
 - Returns `201` with `{ id, status: "running" }` once the process is spawned.
-- Returns `409` for duplicate active run IDs, `429` when run concurrency capacity is reached, `413` for oversized config, and `500` on immediate spawn/start failures.
+- Returns `409` for duplicate active run IDs, `429` when run concurrency capacity is reached, and `500` on immediate spawn/start failures.
 - Requires the `artillery` CLI on `PATH` (not bundled).
-- Completed orchestrated reports are persisted under `ARTILLERY_REPORT_DIR` and referenced by `runs.json_path`.
+- During orchestrated runs, Broadside injects a temporary Artillery reporter plugin (`config.plugins.broadside-reporter`, resolved via `ARTILLERY_PLUGIN_PATH`) to stream live stats to ingest. On completion, the final Artillery report is parsed, provisional streamed rows for the run are replaced with report-derived points, the report is persisted under `ARTILLERY_REPORT_DIR`, and `runs.json_path` is set.
 
 `DELETE /api/runs/:id` kills an active run (marks failed, typically `failure_reason: "killed"`) or deletes a finished run and its metrics.
 
@@ -102,7 +105,7 @@ Events:
 Notes:
 - Supports reconnect/replay from `from` (or epoch) because it resumes by cursor.
 - Data lags ingestion by roughly flusher timing (`FLUSH_INTERVAL_MS`) because writes are buffered/batched.
-- Orchestrated Artillery runs still produce report-derived points at process exit, so SSE for those runs may stay quiet until completion.
+- Orchestrated Artillery runs stream live points during execution through the injected Broadside reporter plugin; on completion, provisional streamed rows are reconciled with the final report-derived points. If the reporter plugin cannot reach ingest (for example, misconfigured `INGEST_URL` in split deployments), live SSE may stay quiet until report reconciliation.
 
 Example:
 
